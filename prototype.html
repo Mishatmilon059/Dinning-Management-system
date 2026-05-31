@@ -1,0 +1,787 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>HMMS — Sher-E-Bangla Hall | BUET</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"/>
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
+<link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,400;0,600;0,700;1,400;1,700&family=Hind+Siliguri:wght@300;400;500;600;700&family=DM+Sans:ital,wght@0,300;0,400;0,500;0,600;1,300&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet"/>
+<style>
+/* ============================================================
+   DESIGN 1 — ROYAL CREST AESTHETIC
+   ============================================================ */
+:root {
+  --navy:       #0A0F1E;
+  --navy-mid:   #112240;
+  --navy-light: #1A3056;
+  --gold:       #C9A84C;
+  --gold-light: #E2C97A;
+  --gold-dim:   rgba(201,168,76,0.15);
+  --cream:      #F0E6C8;
+  --cream-dim:  #E8DCAA;
+  --white:      #FFFFFF;
+  --glass:      rgba(255,255,255,0.03);
+  --glass-border:rgba(255,255,255,0.08);
+  --emerald:    #2ECC71;
+  --emerald-dark:#27AE60;
+  --rose:       #E74C3C;
+  --sky:        #3498DB;
+  --shadow-lg:  0 24px 80px rgba(0,0,0,0.6);
+  --shadow-md:  0 8px 32px rgba(0,0,0,0.4);
+  --radius-xl:  24px;
+  --radius-lg:  16px;
+  --radius-md:  10px;
+  --font-disp:  'Cormorant Garamond', serif;
+  --font-bn:    'Hind Siliguri', sans-serif;
+  --font-en:    'DM Sans', sans-serif;
+  --font-mono:  'JetBrains Mono', monospace;
+}
+
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0;}
+html{scroll-behavior:smooth;}
+body{background:var(--navy);color:var(--cream);font-family:var(--font-en);font-size:15px;line-height:1.65;overflow-x:hidden;min-height:100vh;}
+body.bn{font-family:var(--font-bn);}
+img{display:block;max-width:100%;object-fit:cover;}
+button{cursor:pointer;border:none;background:none;font-family:inherit;}
+a{text-decoration:none;color:inherit;}
+
+.bg-blobs{position:fixed;inset:0;pointer-events:none;z-index:0;}
+.blob{position:absolute;border-radius:50%;filter:blur(80px);opacity:0.06;animation:blobFloat 20s ease-in-out infinite alternate;}
+.blob-1{width:600px;height:600px;background:var(--gold);top:-10%;left:-5%;animation-duration:22s;}
+.blob-2{width:500px;height:500px;background:#2E7D4F;bottom:-10%;right:-5%;animation-duration:18s;animation-delay:-8s;}
+.blob-3{width:400px;height:400px;background:#8B3E6D;top:40%;left:40%;animation-duration:26s;animation-delay:-4s;}
+@keyframes blobFloat{0%{transform:translate(0,0) scale(1);}33%{transform:translate(30px,-20px) scale(1.05);}66%{transform:translate(-20px,30px) scale(0.95);}100%{transform:translate(10px,-10px) scale(1.02);}}
+
+.grain{position:fixed;inset:0;z-index:1;pointer-events:none;opacity:0.02;background-image:url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");}
+
+#app{position:relative;z-index:2;}
+
+/* NAV */
+nav{position:fixed;top:0;left:0;right:0;z-index:100;display:flex;align-items:center;justify-content:space-between;padding:0 clamp(16px,4vw,48px);height:68px;background:rgba(10,15,30,0.92);backdrop-filter:blur(20px);border-bottom:1px solid var(--glass-border);}
+.nav-brand{display:flex;align-items:center;gap:12px;}
+.nav-logo{width:40px;height:40px;background:linear-gradient(135deg,var(--gold),var(--gold-light));border-radius:8px;display:grid;place-items:center;font-family:var(--font-disp);font-size:18px;font-weight:900;color:var(--navy);flex-shrink:0;border:2px solid rgba(201,168,76,0.3);}
+.nav-title{font-family:var(--font-disp);font-size:16px;font-weight:700;color:var(--cream);}
+.nav-subtitle{font-size:10px;color:var(--gold);letter-spacing:.08em;text-transform:uppercase;}
+.nav-links{display:flex;align-items:center;gap:8px;}
+.nav-link{padding:6px 14px;border-radius:20px;font-size:13px;font-weight:500;color:rgba(240,230,200,0.6);transition:all .25s;cursor:pointer;}
+.nav-link:hover,.nav-link.active{background:var(--gold-dim);color:var(--gold);}
+.nav-right{display:flex;align-items:center;gap:10px;}
+.lang-toggle{display:flex;background:var(--glass);border:1px solid var(--glass-border);border-radius:20px;overflow:hidden;}
+.lang-btn{padding:5px 14px;font-size:12px;font-weight:600;color:rgba(240,230,200,0.5);transition:all .2s;letter-spacing:.04em;}
+.lang-btn.active{background:var(--gold);color:var(--navy);}
+.portal-btn{padding:7px 18px;border-radius:20px;font-size:13px;font-weight:600;background:linear-gradient(135deg,var(--gold),var(--gold-light));color:var(--navy);transition:all .2s;}
+.portal-btn:hover{transform:translateY(-1px);box-shadow:0 6px 20px rgba(201,168,76,.4);}
+.hamburger{display:none;flex-direction:column;gap:5px;padding:4px;}
+.hamburger span{display:block;width:22px;height:2px;background:var(--cream);border-radius:2px;transition:all .3s;}
+
+.page{display:none;}
+.page.active{display:block;animation:pageIn .5s cubic-bezier(0.16,1,0.3,1);}
+@keyframes pageIn{from{opacity:0;transform:translateY(16px);}to{opacity:1;transform:translateY(0);}}
+
+/* HERO */
+.hero{min-height:100vh;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:80px clamp(16px,5vw,80px) 60px;text-align:center;position:relative;margin-top:68px;}
+.top-rule,.bottom-rule{width:180px;height:1px;background:linear-gradient(90deg,transparent,var(--gold),transparent);animation:fadeUp .8s cubic-bezier(0.16,1,0.3,1) both;}
+.top-rule{margin:0 auto 28px;animation-delay:.1s;}
+.bottom-rule{margin:28px auto 0;animation-delay:.7s;}
+
+.crest{width:72px;height:72px;border:2px solid var(--gold);border-radius:50%;display:flex;align-items:center;justify-content:center;margin:0 auto 20px;animation:fadeUp .8s .15s both,rotateSlow 20s linear infinite;position:relative;}
+.crest::before{content:'';position:absolute;inset:-6px;border-radius:50%;border:1px solid rgba(201,168,76,.2);}
+.crest-inner{font-family:var(--font-disp);font-size:30px;font-weight:700;color:var(--gold);line-height:1;}
+
+.sup-label{font-size:10px;font-weight:600;letter-spacing:.22em;text-transform:uppercase;color:var(--gold);opacity:.8;animation:fadeUp .8s .2s both;}
+
+.hero-title{font-family:var(--font-disp);font-size:clamp(40px,8vw,88px);font-weight:900;line-height:1;color:var(--cream);animation:fadeUp .8s .3s both;}
+.hero-title .gold{color:var(--gold);}
+.hero-title .line2{font-style:italic;color:transparent;-webkit-text-stroke:1px var(--gold);font-size:clamp(36px,7vw,80px);display:block;margin-top:8px;}
+
+.hero-hall{font-size:clamp(13px,2.5vw,18px);color:rgba(240,230,200,.6);margin-top:16px;letter-spacing:.15em;text-transform:uppercase;animation:fadeUp .8s .35s both;}
+.hero-desc{max-width:580px;font-size:clamp(13px,1.8vw,16px);color:rgba(240,230,200,.65);margin:20px auto 0;line-height:1.8;animation:fadeUp .8s .4s both;}
+.hero-actions{display:flex;gap:14px;justify-content:center;flex-wrap:wrap;margin-top:40px;animation:fadeUp .8s .5s both;}
+
+.btn-primary,.btn-outline{padding:13px 32px;border-radius:2px;font-size:14px;font-weight:600;transition:all .25s;text-transform:uppercase;letter-spacing:.06em;}
+.btn-primary{background:linear-gradient(135deg,var(--gold),var(--gold-light));color:var(--navy);}
+.btn-primary:hover{transform:translateY(-2px);box-shadow:0 10px 32px rgba(201,168,76,.4);}
+.btn-outline{border:1px solid rgba(240,230,200,.25);color:var(--cream);}
+.btn-outline:hover{background:var(--glass);border-color:var(--gold);color:var(--gold);}
+
+.hero-stats{display:flex;gap:clamp(20px,4vw,60px);justify-content:center;flex-wrap:wrap;margin-top:64px;animation:fadeUp .8s .6s both;}
+.stat{text-align:center;}
+.stat-num{font-family:var(--font-disp);font-size:clamp(28px,5vw,48px);font-weight:700;color:var(--gold);}
+.stat-label{font-size:11px;color:rgba(240,230,200,.5);letter-spacing:.08em;text-transform:uppercase;margin-top:4px;}
+
+.ornament{display:flex;align-items:center;gap:10px;justify-content:center;margin:20px 0;}
+.ornament-line{width:40px;height:1px;background:rgba(201,168,76,.25);}
+.ornament-diamond{width:5px;height:5px;background:var(--gold);transform:rotate(45deg);}
+
+@keyframes fadeUp{from{opacity:0;transform:translateY(24px);}to{opacity:1;transform:translateY(0);}}
+@keyframes rotateSlow{to{transform:rotate(360deg);}}
+
+.scroll-hint{position:absolute;bottom:32px;left:50%;transform:translateX(-50%);display:flex;flex-direction:column;align-items:center;gap:8px;animation:fadeUp 1s 1s both;}
+.scroll-hint span{font-size:11px;color:rgba(240,230,200,.4);letter-spacing:.1em;text-transform:uppercase;}
+.scroll-arrow{width:20px;height:32px;border:1.5px solid rgba(201,168,76,.3);border-radius:10px;position:relative;display:flex;justify-content:center;padding-top:6px;}
+.scroll-arrow::after{content:'';width:4px;height:4px;background:var(--gold);border-radius:50%;animation:scrollDot 1.6s ease-in-out infinite;}
+@keyframes scrollDot{0%{opacity:1;transform:translateY(0);}100%{opacity:0;transform:translateY(14px);}}
+
+/* SECTION */
+.section{padding:80px clamp(16px,5vw,80px);}
+.section-header{margin-bottom:48px;text-align:center;}
+.section-tag{font-size:10px;font-weight:700;letter-spacing:.15em;text-transform:uppercase;color:var(--gold);margin-bottom:12px;display:flex;align-items:center;gap:8px;justify-content:center;}
+.section-tag::before,.section-tag::after{content:'';display:block;width:24px;height:1px;background:var(--gold);}
+.section-title{font-family:var(--font-disp);font-size:clamp(28px,4vw,44px);font-weight:700;color:var(--cream);line-height:1.2;}
+.section-title em{font-style:italic;color:var(--gold);}
+
+.section-desc{max-width:600px;margin:20px auto 0;font-size:14px;color:rgba(240,230,200,.55);text-align:center;}
+
+/* GALLERY */
+.gallery-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:20px;}
+.gallery-card{position:relative;border-radius:var(--radius-lg);overflow:hidden;background:var(--glass);border:1px solid rgba(201,168,76,.15);transition:all .4s cubic-bezier(0.16,1,0.3,1);animation:fadeUp .6s cubic-bezier(0.16,1,0.3,1) both;}
+.gallery-card:hover{transform:translateY(-6px);border-color:rgba(201,168,76,.35);box-shadow:var(--shadow-lg);}
+
+.gc-img-wrap{height:240px;position:relative;overflow:hidden;}
+.gc-img-wrap img{width:100%;height:100%;object-fit:cover;object-position:center;transition:transform .6s cubic-bezier(0.16,1,0.3,1);}
+.gallery-card:hover .gc-img-wrap img{transform:scale(1.08);}
+
+.gc-body{padding:16px;}
+.gc-name{font-family:var(--font-disp);font-size:16px;font-weight:700;color:var(--cream);margin-bottom:6px;}
+.gc-meta{display:flex;flex-wrap:wrap;gap:8px;font-size:11px;}
+.gc-dept{background:rgba(201,168,76,.15);border:1px solid rgba(201,168,76,.25);border-radius:20px;padding:3px 10px;color:var(--gold);font-weight:500;}
+.gc-batch{background:rgba(45,122,79,.15);border:1px solid rgba(45,122,79,.25);border-radius:20px;padding:3px 10px;color:#2ECC71;font-weight:500;}
+
+/* MENU SECTION */
+.menu-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:20px;}
+.menu-card{border-radius:var(--radius-lg);overflow:hidden;position:relative;border:1px solid rgba(201,168,76,.15);}
+.menu-img{height:200px;position:relative;overflow:hidden;}
+.menu-img img{width:100%;height:100%;object-fit:cover;transition:transform .6s cubic-bezier(0.16,1,0.3,1);}
+.menu-card:hover .menu-img img{transform:scale(1.07);}
+.menu-badge{position:absolute;top:14px;left:14px;padding:4px 12px;border-radius:20px;font-size:11px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;backdrop-filter:blur(8px);}
+.badge-breakfast{background:rgba(230,126,34,.25);border:1px solid rgba(230,126,34,.5);color:#F39C12;}
+.badge-lunch{background:rgba(39,174,96,.25);border:1px solid rgba(39,174,96,.5);color:#2ECC71;}
+.badge-dinner{background:rgba(52,152,219,.25);border:1px solid rgba(52,152,219,.5);color:#3498DB;}
+.menu-body{padding:20px;background:var(--glass);border:1px solid rgba(201,168,76,.15);}
+.menu-time{font-family:var(--font-mono);font-size:11px;color:var(--gold);margin-bottom:8px;}
+.menu-name{font-family:var(--font-disp);font-size:22px;font-weight:700;color:var(--cream);margin-bottom:10px;}
+.menu-items{display:flex;flex-wrap:wrap;gap:6px;}
+.menu-tag{padding:3px 10px;border-radius:20px;font-size:12px;background:rgba(253,246,227,.07);border:1px solid rgba(253,246,227,.12);color:rgba(253,246,227,.7);}
+.reaction-bar{display:flex;gap:8px;margin-top:14px;padding-top:12px;border-top:1px solid rgba(253,246,227,.08);}
+.react-btn{display:flex;align-items:center;gap:5px;padding:5px 12px;border-radius:20px;font-size:13px;background:rgba(253,246,227,.06);border:1px solid rgba(253,246,227,.1);color:rgba(253,246,227,.7);transition:all .2s;}
+.react-btn:hover{transform:scale(1.08);}
+
+/* NOTICES */
+.notice-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:20px;}
+.payment-card{padding:32px;border-radius:var(--radius-lg);background:linear-gradient(135deg,rgba(192,57,43,.15),rgba(192,57,43,.05));border:1px solid rgba(192,57,43,.3);position:relative;overflow:hidden;}
+.payment-card::after{content:'৳';position:absolute;right:-10px;top:-20px;font-size:140px;opacity:.04;font-family:var(--font-disp);font-weight:900;color:#E74C3C;}
+.pc-label{font-size:11px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:#E74C3C;margin-bottom:16px;}
+.pc-amount{font-family:var(--font-disp);font-size:52px;font-weight:900;color:var(--cream);line-height:1;}
+.pc-currency{font-size:22px;vertical-align:super;}
+.pc-desc{font-size:13px;color:rgba(253,246,227,.55);margin-top:8px;}
+.countdown{display:flex;gap:12px;margin-top:24px;flex-wrap:wrap;}
+.cd-unit{flex:1;min-width:56px;text-align:center;padding:12px 8px;border-radius:var(--radius-md);background:rgba(192,57,43,.15);border:1px solid rgba(192,57,43,.25);}
+.cd-num{font-family:var(--font-disp);font-size:26px;font-weight:700;color:#E74C3C;}
+.cd-label{font-size:10px;color:rgba(253,246,227,.4);letter-spacing:.06em;text-transform:uppercase;margin-top:2px;}
+
+.notice-item{padding:24px;border-radius:var(--radius-lg);background:var(--glass);border:1px solid var(--glass-border);transition:all .3s;}
+.notice-item:hover{border-color:rgba(201,168,76,.2);transform:translateY(-2px);}
+.ni-tag{display:inline-block;padding:3px 10px;border-radius:20px;font-size:10px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;margin-bottom:12px;}
+.tag-urgent{background:rgba(192,57,43,.2);border:1px solid rgba(192,57,43,.4);color:#E74C3C;}
+.tag-info{background:rgba(41,128,185,.2);border:1px solid rgba(41,128,185,.4);color:#3498DB;}
+.tag-general{background:rgba(201,168,76,.15);border:1px solid rgba(201,168,76,.3);color:var(--gold);}
+.ni-title{font-family:var(--font-disp);font-size:18px;font-weight:600;color:var(--cream);margin-bottom:8px;}
+.ni-text{font-size:13px;color:rgba(253,246,227,.65);line-height:1.6;}
+.ni-footer{display:flex;align-items:center;justify-content:space-between;margin-top:14px;}
+.ni-date{font-size:11px;color:rgba(253,246,227,.35);font-family:var(--font-mono);}
+.ni-author{font-size:11px;color:var(--gold);}
+
+/* CONTACTS */
+.provost-hero{padding:48px;border-radius:var(--radius-lg);background:linear-gradient(135deg,rgba(45,122,79,.15),rgba(17,34,64,.5));border:1px solid rgba(45,122,79,.25);display:flex;align-items:center;gap:32px;flex-wrap:wrap;margin-bottom:32px;position:relative;overflow:hidden;}
+.provost-hero::before{content:'';position:absolute;right:-40px;top:-40px;width:280px;height:280px;border-radius:50%;background:radial-gradient(circle,rgba(45,122,79,.15),transparent 70%);}
+.provost-img{width:120px;height:120px;border-radius:50%;overflow:hidden;border:3px solid var(--gold);flex-shrink:0;box-shadow:0 0 0 6px rgba(212,168,83,.15);position:relative;z-index:1;}
+.provost-img img{width:100%;height:100%;}
+.provost-info{position:relative;z-index:1;}
+.provost-info .title{font-size:11px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:var(--gold);margin-bottom:6px;}
+.provost-info .name{font-family:var(--font-disp);font-size:clamp(22px,3vw,32px);font-weight:700;color:var(--cream);margin-bottom:4px;}
+.provost-info .role{font-size:14px;color:rgba(253,246,227,.6);margin-bottom:16px;}
+.provost-info .bio{font-size:13px;color:rgba(253,246,227,.55);line-height:1.7;max-width:420px;}
+
+.contact-cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:16px;}
+.contact-card{padding:24px;border-radius:var(--radius-lg);background:var(--glass);border:1px solid var(--glass-border);display:flex;align-items:flex-start;gap:16px;transition:all .3s;}
+.contact-card:hover{border-color:rgba(201,168,76,.25);transform:translateY(-2px);}
+.cc-icon{width:48px;height:48px;border-radius:12px;display:grid;place-items:center;font-size:20px;flex-shrink:0;}
+.icon-provost{background:rgba(201,168,76,.15);}
+.icon-medical{background:rgba(192,57,43,.15);}
+.icon-electric{background:rgba(241,196,15,.15);}
+.icon-security{background:rgba(52,152,219,.15);}
+.icon-emergency{background:rgba(192,57,43,.15);}
+.cc-info .role{font-size:11px;color:rgba(253,246,227,.45);text-transform:uppercase;letter-spacing:.08em;margin-bottom:4px;}
+.cc-info .name{font-size:15px;font-weight:600;color:var(--cream);margin-bottom:6px;}
+.cc-phone{display:inline-flex;align-items:center;gap:6px;font-family:var(--font-mono);font-size:13px;color:var(--gold);padding:4px 10px;border-radius:20px;background:var(--gold-dim);}
+
+/* MANAGERS */
+.manager-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:24px;}
+.manager-card{border-radius:var(--radius-lg);overflow:hidden;background:var(--glass);border:1px solid var(--glass-border);transition:all .4s cubic-bezier(0.16,1,0.3,1);position:relative;}
+.manager-card:hover{transform:translateY(-6px);box-shadow:var(--shadow-lg);border-color:rgba(201,168,76,.3);}
+.mc-img-wrap{height:240px;position:relative;overflow:hidden;}
+.mc-img-wrap img{width:100%;height:100%;object-fit:cover;object-position:top;transition:transform .6s cubic-bezier(0.16,1,0.3,1);}
+.manager-card:hover .mc-img-wrap img{transform:scale(1.05);}
+.mc-overlay{position:absolute;inset:0;background:linear-gradient(to top,rgba(11,22,40,1) 0%,rgba(11,22,40,.4) 50%,transparent 100%);}
+.mc-month-badge{position:absolute;top:14px;right:14px;padding:4px 12px;border-radius:20px;font-size:11px;font-weight:700;background:rgba(201,168,76,.2);border:1px solid rgba(201,168,76,.4);color:var(--gold);backdrop-filter:blur(8px);}
+.mc-current{background:rgba(45,122,79,.2);border-color:rgba(45,122,79,.4);color:#2ECC71;}
+.mc-body{padding:20px;}
+.mc-dept{font-size:11px;color:var(--gold);font-weight:600;letter-spacing:.08em;text-transform:uppercase;margin-bottom:6px;}
+.mc-name{font-family:var(--font-disp);font-size:22px;font-weight:700;color:var(--cream);margin-bottom:4px;}
+.mc-room{font-size:13px;color:rgba(253,246,227,.5);margin-bottom:12px;}
+.mc-bio{font-size:13px;color:rgba(253,246,227,.65);line-height:1.6;margin-bottom:16px;}
+.mc-id{font-family:var(--font-mono);font-size:11px;color:rgba(253,246,227,.35);padding:4px 10px;background:rgba(253,246,227,.04);border-radius:4px;display:inline-block;}
+
+/* MANAGER DASHBOARD */
+.mgr-header{display:flex;align-items:center;gap:16px;padding:20px 28px;border-radius:var(--radius-lg);background:linear-gradient(135deg,rgba(17,34,64,.8),rgba(11,22,40,.9));border:1px solid var(--glass-border);margin-bottom:28px;flex-wrap:wrap;}
+.mgr-avatar{width:56px;height:56px;border-radius:50%;overflow:hidden;border:2px solid var(--gold);flex-shrink:0;}
+.mgr-avatar img{width:100%;height:100%;}
+.mgr-info .name{font-family:var(--font-disp);font-size:20px;font-weight:700;color:var(--cream);}
+.mgr-info .sub{font-size:12px;color:rgba(253,246,227,.5);}
+.mgr-balance{margin-left:auto;text-align:right;}
+.bal-label{font-size:11px;color:rgba(253,246,227,.45);text-transform:uppercase;letter-spacing:.08em;}
+.bal-amount{font-family:var(--font-disp);font-size:28px;font-weight:700;color:var(--emerald);}
+
+.stats-row{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:16px;margin-bottom:24px;}
+.stat-box{padding:20px;border-radius:var(--radius-lg);background:var(--glass);border:1px solid var(--glass-border);}
+.sb-label{font-size:11px;color:rgba(253,246,227,.45);text-transform:uppercase;letter-spacing:.08em;margin-bottom:8px;}
+.sb-value{font-family:var(--font-disp);font-size:26px;font-weight:700;}
+.sb-sub{font-size:12px;color:rgba(253,246,227,.4);margin-top:4px;}
+.sb-value.green{color:var(--emerald);}
+.sb-value.gold{color:var(--gold);}
+.sb-value.red{color:var(--rose);}
+
+.expense-table-wrap{border-radius:var(--radius-lg);overflow:hidden;border:1px solid var(--glass-border);}
+.expense-table{width:100%;border-collapse:collapse;background:var(--glass);}
+.expense-table th{padding:12px 16px;background:rgba(17,34,64,.8);font-size:11px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:rgba(253,246,227,.5);text-align:left;}
+.expense-table td{padding:12px 16px;border-top:1px solid rgba(253,246,227,.05);font-size:13px;color:rgba(253,246,227,.8);}
+.expense-table tr:hover td{background:rgba(253,246,227,.02);}
+
+.cat-badge{padding:2px 8px;border-radius:4px;font-size:11px;font-weight:600;}
+.cat-veg{background:rgba(45,122,79,.2);color:#2ECC71;}
+.cat-protein{background:rgba(230,126,34,.2);color:#E67E22;}
+.cat-fuel{background:rgba(52,152,219,.2);color:#3498DB;}
+.cat-misc{background:rgba(253,246,227,.1);color:rgba(253,246,227,.6);}
+.cat-grain{background:rgba(201,168,76,.2);color:var(--gold);}
+
+/* INVENTORY */
+.inventory-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:14px;}
+.inv-card{padding:18px;border-radius:var(--radius-lg);background:var(--glass);border:1px solid var(--glass-border);}
+.inv-name{font-size:14px;font-weight:600;color:var(--cream);margin-bottom:8px;}
+.inv-bar{height:4px;background:rgba(253,246,227,.08);border-radius:2px;margin-bottom:8px;}
+.inv-fill{height:100%;border-radius:2px;transition:width 1s cubic-bezier(0.16,1,0.3,1);}
+.fill-green{background:linear-gradient(90deg,var(--emerald),#2ECC71);}
+.fill-yellow{background:linear-gradient(90deg,#F39C12,#F1C40F);}
+.fill-red{background:linear-gradient(90deg,#E74C3C,#C0392B);}
+.inv-stats{display:flex;justify-content:space-between;align-items:center;}
+.inv-amount{font-family:var(--font-mono);font-size:12px;color:rgba(253,246,227,.6);}
+.inv-status{font-size:11px;font-weight:700;padding:2px 8px;border-radius:4px;}
+.status-ok{background:rgba(45,122,79,.2);color:#2ECC71;}
+.status-low{background:rgba(241,196,15,.2);color:#F1C40F;}
+.status-critical{background:rgba(192,57,43,.2);color:#E74C3C;}
+
+/* TABS */
+.tabs{display:flex;gap:4px;margin-bottom:28px;background:rgba(253,246,227,.04);padding:4px;border-radius:50px;width:fit-content;flex-wrap:wrap;}
+.tab{padding:8px 20px;border-radius:40px;font-size:13px;font-weight:500;color:rgba(253,246,227,.5);transition:all .25s;white-space:nowrap;cursor:pointer;}
+.tab.active{background:linear-gradient(135deg,var(--gold),var(--gold-light));color:var(--navy);}
+
+/* MODAL */
+.modal-overlay{position:fixed;inset:0;z-index:200;background:rgba(0,0,0,.75);backdrop-filter:blur(8px);display:none;place-items:center;padding:20px;}
+.modal-overlay.open{display:grid;}
+.modal{width:100%;max-width:420px;border-radius:var(--radius-lg);background:var(--navy-mid);border:1px solid var(--glass-border);padding:36px;animation:modalIn .4s cubic-bezier(0.16,1,0.3,1);position:relative;}
+@keyframes modalIn{from{opacity:0;transform:scale(.95);}to{opacity:1;transform:scale(1);}}
+.modal-title{font-family:var(--font-disp);font-size:26px;font-weight:700;color:var(--cream);margin-bottom:6px;}
+.modal-sub{font-size:13px;color:rgba(253,246,227,.5);margin-bottom:28px;}
+.modal-tabs{display:flex;gap:4px;margin-bottom:24px;background:rgba(253,246,227,.04);padding:4px;border-radius:50px;}
+.modal-tab{flex:1;text-align:center;padding:8px;border-radius:40px;font-size:13px;color:rgba(253,246,227,.5);transition:all .2s;cursor:pointer;}
+.modal-tab.active{background:var(--gold-dim);color:var(--gold);}
+.modal-input{width:100%;padding:12px 16px;border-radius:var(--radius-md);background:rgba(253,246,227,.06);border:1px solid rgba(253,246,227,.12);color:var(--cream);font-family:inherit;font-size:14px;outline:none;transition:all .2s;margin-bottom:14px;}
+.modal-input:focus{border-color:var(--gold);background:rgba(201,168,76,.06);}
+.modal-submit{width:100%;padding:14px;border-radius:50px;font-size:14px;font-weight:700;background:linear-gradient(135deg,var(--gold),var(--gold-light));color:var(--navy);transition:all .2s;margin-top:8px;}
+.modal-submit:hover{box-shadow:0 8px 24px rgba(201,168,76,.3);}
+.modal-close{position:absolute;top:16px;right:16px;width:32px;height:32px;border-radius:50%;background:rgba(253,246,227,.08);color:rgba(253,246,227,.6);font-size:18px;display:grid;place-items:center;transition:all .2s;cursor:pointer;}
+.modal-close:hover{background:rgba(253,246,227,.15);color:var(--cream);}
+
+.divider{height:1px;background:linear-gradient(90deg,transparent,rgba(201,168,76,.2),transparent);margin:40px 0;}
+
+@media(max-width:700px){
+  .nav-links{display:none;}
+  .hamburger{display:flex;}
+  .gallery-grid{grid-template-columns:repeat(auto-fill,minmax(180px,1fr));}
+  .menu-grid{grid-template-columns:1fr;}
+  .contact-cards{grid-template-columns:repeat(auto-fill,minmax(200px,1fr));}
+  .stats-row{grid-template-columns:repeat(2,1fr);}
+}
+</style>
+</head>
+<body>
+
+<div class="bg-blobs"><div class="blob blob-1"></div><div class="blob blob-2"></div><div class="blob blob-3"></div></div>
+<div class="grain"></div>
+
+<div id="app">
+
+<!-- NAVBAR -->
+<nav>
+  <div class="nav-brand">
+    <div class="nav-logo">শ</div>
+    <div>
+      <div class="nav-title" data-en="HMMS" data-bn="এইচএমএমএস">HMMS</div>
+      <div class="nav-subtitle" data-en="Sher-E-Bangla Hall" data-bn="শেরে বাংলা হল">Sher-E-Bangla Hall</div>
+    </div>
+  </div>
+  <div class="nav-links">
+    <a class="nav-link active" onclick="showPage('home')" data-en="Home" data-bn="হোম">Home</a>
+    <a class="nav-link" onclick="showPage('gallery')" data-en="Gallery" data-bn="গ্যালারি">Gallery</a>
+    <a class="nav-link" onclick="showPage('menu')" data-en="Menu" data-bn="মেনু">Menu</a>
+    <a class="nav-link" onclick="showPage('notices')" data-en="Notices" data-bn="নোটিশ">Notices</a>
+    <a class="nav-link" onclick="showPage('contacts')" data-en="Contacts" data-bn="যোগাযোগ">Contacts</a>
+    <a class="nav-link" onclick="showPage('managers')" data-en="Managers" data-bn="ম্যানেজার">Managers</a>
+  </div>
+  <div class="nav-right">
+    <div class="lang-toggle">
+      <button class="lang-btn active" id="btnEN" onclick="setLang('en')">EN</button>
+      <button class="lang-btn" id="btnBN" onclick="setLang('bn')">বাং</button>
+    </div>
+    <button class="portal-btn" onclick="openModal()" data-en="Portal" data-bn="পোর্টাল">Portal</button>
+  </div>
+</nav>
+
+<!-- HOME -->
+<div class="page active" id="page-home">
+  <section class="hero">
+    <div class="top-rule"></div>
+    <div class="crest"><div class="crest-inner">শ</div></div>
+    <div class="sup-label" data-en="Bangladesh University of Engineering and Technology" data-bn="বাংলাদেশ প্রকৌশল বিশ্ববিদ্যালয়">Bangladesh University of Engineering and Technology</div>
+    <h1 class="hero-title">
+      <span class="gold" data-en="Sher-E-Bangla" data-bn="শেরে বাংলা">Sher-E-Bangla</span>
+      <span class="line2" data-en="Hall of Residence" data-bn="হল অব রেসিডেন্স">Hall of Residence</span>
+    </h1>
+    <p class="hero-hall" data-en="Established 1973 · 487 Residents · BUET Campus" data-bn="প্রতিষ্ঠিত ১৯৭৩ · ৪৮৭ বাসিন্দা · বুয়েট ক্যাম্পাস">Established 1973 · 487 Residents · BUET Campus</p>
+    <div class="ornament"><div class="ornament-line"></div><div class="ornament-diamond"></div><div class="ornament-line"></div></div>
+    <p class="hero-desc" data-en="Transparent dining management system. Daily menus, financial accountability, student feedback, and community engagement — all digitized." data-bn="স্বচ্ছ খাবার ব্যবস্থাপনা প্রণালী। দৈনিক মেনু, আর্থিক জবাবদিহিতা এবং শিক্ষার্থী প্রতিক্রিয়া।">Transparent dining management system. Daily menus, financial accountability, student feedback, and community engagement — all digitized.</p>
+    <div class="hero-actions">
+      <button class="btn-primary" onclick="showPage('gallery')" data-en="📸 View Gallery" data-bn="📸 গ্যালারি দেখুন">📸 View Gallery</button>
+      <button class="btn-outline" onclick="showPage('menu')" data-en="🍽️ Today's Menu" data-bn="🍽️ আজকের মেনু">🍽️ Today's Menu</button>
+    </div>
+    <div class="hero-stats">
+      <div class="stat"><div class="stat-num" id="c1">487</div><div class="stat-label" data-en="Students" data-bn="শিক্ষার্থী">Students</div></div>
+      <div class="stat"><div class="stat-num" id="c2">12</div><div class="stat-label" data-en="Photos" data-bn="ছবি">Photos</div></div>
+      <div class="stat"><div class="stat-num" id="c3">4</div><div class="stat-label" data-en="Managers" data-bn="ম্যানেজার">Managers</div></div>
+      <div class="stat"><div class="stat-num" id="c4">51</div><div class="stat-label" data-en="Years" data-bn="বছর">Years</div></div>
+    </div>
+    <div class="bottom-rule"></div>
+    <div class="scroll-hint"><span data-en="SCROLL" data-bn="স্ক্রল">SCROLL</span><div class="scroll-arrow"></div></div>
+  </section>
+</div>
+
+<!-- GALLERY -->
+<div class="page" id="page-gallery">
+  <div class="section" style="padding-top:100px;">
+    <div class="section-header">
+      <div class="section-tag" data-en="Hall Memories" data-bn="হলের স্মৃতি">Hall Memories</div>
+      <h2 class="section-title" data-en="Hall <em>Gallery</em>" data-bn="হল <em>গ্যালারি</em>">Hall <em>Gallery</em></h2>
+      <p class="section-desc" data-en="Beautiful moments captured by our hall residents. Each photo tells a story of life, friendship, and community at Sher-E-Bangla Hall." data-bn="আমাদের হল বাসিন্দাদের দ্বারা ধরা সুন্দর মুহূর্ত।">Beautiful moments captured by our hall residents. Each photo tells a story of life, friendship, and community.</p>
+    </div>
+    <div class="gallery-grid" id="galleryGrid"></div>
+  </div>
+</div>
+
+<!-- MENU -->
+<div class="page" id="page-menu">
+  <div class="section" style="padding-top:100px;">
+    <div class="section-header">
+      <div class="section-tag" data-en="Daily Update" data-bn="দৈনিক আপডেট">Daily Update</div>
+      <h2 class="section-title" data-en="Today's <em>Menu</em>" data-bn="আজকের <em>মেনু</em>">Today's <em>Menu</em></h2>
+      <p class="section-desc" data-en="May 28, 2026 · Thursday · Live Menu" data-bn="২৮ মে ২০২৬ · বৃহস্পতিবার · লাইভ মেনু">May 28, 2026 · Thursday · Live Menu</p>
+    </div>
+    <div class="menu-grid" id="menuGrid"></div>
+  </div>
+</div>
+
+<!-- NOTICES -->
+<div class="page" id="page-notices">
+  <div class="section" style="padding-top:100px;">
+    <div class="section-header">
+      <div class="section-tag" data-en="Updates" data-bn="আপডেট">Updates</div>
+      <h2 class="section-title" data-en="Notices & <em>Deadlines</em>" data-bn="নোটিশ ও <em>সময়সীমা</em>">Notices & <em>Deadlines</em></h2>
+    </div>
+    <div class="notice-grid">
+      <div class="payment-card">
+        <div class="pc-label" data-en="💰 Monthly Mess Fee" data-bn="💰 মাসিক মেস ফি">💰 Monthly Mess Fee</div>
+        <div class="pc-amount"><span class="pc-currency">৳</span>2,500</div>
+        <div class="pc-desc" data-en="Pay by June 5 · Penalty ৳200 after" data-bn="জুন ৫ এর মধ্যে পরিশোধ করুন · সময়সীমার পরে ৳২০০ জরিমানা">Pay by June 5 · Penalty ৳200 after</div>
+        <div class="countdown">
+          <div class="cd-unit"><div class="cd-num" id="cd-d">07</div><div class="cd-label" data-en="Days" data-bn="দিন">Days</div></div>
+          <div class="cd-unit"><div class="cd-num" id="cd-h">14</div><div class="cd-label" data-en="Hours" data-bn="ঘণ্টা">Hours</div></div>
+          <div class="cd-unit"><div class="cd-num" id="cd-m">32</div><div class="cd-label" data-en="Mins" data-bn="মিনিট">Mins</div></div>
+        </div>
+      </div>
+      <div class="notice-item">
+        <span class="ni-tag tag-urgent" data-en="Urgent" data-bn="জরুরি">Urgent</span>
+        <div class="ni-title" data-en="Water Supply Disruption" data-bn="পানি সরবরাহ বাধাগ্রস্ত">Water Supply Disruption</div>
+        <div class="ni-text" data-en="Pipeline maintenance on May 30, 8 AM—2 PM. Store water in advance." data-bn="৩০ মে সকাল ৮টা থেকে দুপুর ২টা পর্যন্ত পাইপলাইন রক্ষণাবেক্ষণ।">Pipeline maintenance on May 30, 8 AM—2 PM. Store water in advance.</div>
+        <div class="ni-footer"><span class="ni-date">2026-05-28</span><span class="ni-author" data-en="Hall Admin" data-bn="হল প্রশাসন">Hall Admin</span></div>
+      </div>
+      <div class="notice-item">
+        <span class="ni-tag tag-info" data-en="Info" data-bn="তথ্য">Info</span>
+        <div class="ni-title" data-en="Special Eid Menu — June 7" data-bn="বিশেষ ঈদ মেনু — ৭ জুন">Special Eid Menu — June 7</div>
+        <div class="ni-text" data-en="Celebrate Eid-ul-Adha with biryani, rezala, and special desserts for lunch and dinner." data-bn="ঈদুল আযহা উপলক্ষে বিশেষ খাবার। বিরিয়ানি, রেজালা এবং মিষ্টি পরিবেশন করা হবে।">Celebrate Eid-ul-Adha with biryani, rezala, and special desserts.</div>
+        <div class="ni-footer"><span class="ni-date">2026-05-26</span><span class="ni-author" data-en="Mess Manager" data-bn="মেস ম্যানেজার">Mess Manager</span></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- CONTACTS -->
+<div class="page" id="page-contacts">
+  <div class="section" style="padding-top:100px;">
+    <div class="section-header">
+      <div class="section-tag" data-en="Directory" data-bn="ডিরেক্টরি">Directory</div>
+      <h2 class="section-title" data-en="Important <em>Contacts</em>" data-bn="গুরুত্বপূর্ণ <em>যোগাযোগ</em>">Important <em>Contacts</em></h2>
+    </div>
+    <div class="provost-hero">
+      <div class="provost-img"><img src="https://images.unsplash.com/photo-1566753323558-f4e0952af115?w=300&q=80" alt="Provost"/></div>
+      <div class="provost-info">
+        <div class="title" data-en="Hall Provost" data-bn="হলের প্রভোস্ট">Hall Provost</div>
+        <div class="name" data-en="Prof. Dr. Rafiqul Islam" data-bn="অধ্যাপক ড. রফিকুল ইসলাম">Prof. Dr. Rafiqul Islam</div>
+        <div class="role" data-en="Professor, Civil Engineering · BUET" data-bn="অধ্যাপক, পুরকৌশল বিভাগ · বুয়েট">Professor, Civil Engineering · BUET</div>
+        <div class="bio" data-en="Dr. Islam has been serving as provost since 2021. His commitment to student welfare and transparent governance has significantly improved hall management." data-bn="ড. ইসলাম ২০২১ সাল থেকে প্রভোস্ট হিসেবে কর্মরত। শিক্ষার্থীদের কল্যাণে তার অবদান অতুলনীয়।">Dr. Islam has been serving as provost since 2021. His commitment to student welfare and transparent governance has significantly improved hall management.</div>
+      </div>
+    </div>
+    <div class="contact-cards" id="contactCards"></div>
+  </div>
+</div>
+
+<!-- MANAGERS -->
+<div class="page" id="page-managers">
+  <div class="section" style="padding-top:100px;">
+    <div class="section-header">
+      <div class="section-tag" data-en="May 2026" data-bn="মে ২০২৬">May 2026</div>
+      <h2 class="section-title" data-en="Meet Your <em>Managers</em>" data-bn="আপনার <em>ম্যানেজারদের</em> সাথে পরিচিত হন">Meet Your <em>Managers</em></h2>
+    </div>
+    <div class="manager-grid" id="managerGrid"></div>
+  </div>
+</div>
+
+<!-- MANAGER DASHBOARD -->
+<div class="page" id="page-manager-dashboard">
+  <div class="section" style="padding-top:100px;">
+    <div class="mgr-header">
+      <div class="mgr-avatar"><img src="https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=200&q=80" alt="Manager"/></div>
+      <div class="mgr-info">
+        <div class="name" data-en="Rafiquzzaman Siam" data-bn="রফিকুজ্জামান সিয়াম">Rafiquzzaman Siam</div>
+        <div class="sub" data-en="Mess Manager · May 2026 · CSE 3rd Year" data-bn="মেস ম্যানেজার · মে ২০২৬ · সিএসই ৩য় বর্ষ">Mess Manager · May 2026 · CSE 3rd Year</div>
+      </div>
+      <div class="mgr-balance">
+        <div class="bal-label" data-en="Current Balance" data-bn="বর্তমান ব্যালেন্স">Current Balance</div>
+        <div class="bal-amount">৳82,400</div>
+      </div>
+    </div>
+    <div class="tabs">
+      <button class="tab active" onclick="mgTab(this,'overview')" data-en="Overview" data-bn="সারসংক্ষেপ">Overview</button>
+      <button class="tab" onclick="mgTab(this,'expenses')" data-en="Expenses" data-bn="ব্যয়">Expenses</button>
+      <button class="tab" onclick="mgTab(this,'inventory')" data-en="Inventory" data-bn="ইনভেন্টরি">Inventory</button>
+    </div>
+    <div id="mg-overview">
+      <div class="stats-row">
+        <div class="stat-box"><div class="sb-label" data-en="Cash Collected" data-bn="মোট সংগৃহীত">Cash Collected</div><div class="sb-value gold">৳1,25,000</div><div class="sb-sub" data-en="From Provost" data-bn="প্রভোস্ট থেকে">From Provost</div></div>
+        <div class="stat-box"><div class="sb-label" data-en="Total Spent" data-bn="মোট ব্যয়">Total Spent</div><div class="sb-value red">৳42,600</div><div class="sb-sub" data-en="Up to May 28" data-bn="মে ২৮ পর্যন্ত">Up to May 28</div></div>
+        <div class="stat-box"><div class="sb-label" data-en="Balance" data-bn="ব্যালেন্স">Balance</div><div class="sb-value green">৳82,400</div><div class="sb-sub" data-en="Remaining" data-bn="অবশিষ্ট">Remaining</div></div>
+        <div class="stat-box"><div class="sb-label" data-en="Daily Avg" data-bn="দৈনিক গড়">Daily Avg</div><div class="sb-value gold">৳1,521</div><div class="sb-sub" data-en="Per student" data-bn="প্রতি শিক্ষার্থী">Per student</div></div>
+      </div>
+    </div>
+    <div id="mg-expenses" style="display:none;">
+      <div class="expense-table-wrap">
+        <table class="expense-table">
+          <thead><tr><th data-en="Item" data-bn="আইটেম">Item</th><th data-en="Qty" data-bn="পরিমাণ">Qty</th><th>Unit</th><th data-en="Price" data-bn="মূল্য">Price</th><th data-en="Total" data-bn="মোট">Total</th><th data-en="Cat" data-bn="ক্যাটেগরি">Cat</th></tr></thead>
+          <tbody>
+            <tr><td data-en="Rice (Miniket)" data-bn="চাল">Rice (Miniket)</td><td>50</td><td>kg</td><td>৳65</td><td>৳3,250</td><td><span class="cat-badge cat-grain">Grain</span></td></tr>
+            <tr><td data-en="Rohu Fish" data-bn="রুই মাছ">Rohu Fish</td><td>15</td><td>kg</td><td>৳280</td><td>৳4,200</td><td><span class="cat-badge cat-protein">Protein</span></td></tr>
+            <tr><td data-en="Mixed Vegetables" data-bn="সবজি">Mixed Vegetables</td><td>8</td><td>kg</td><td>৳45</td><td>৳360</td><td><span class="cat-badge cat-veg">Veg</span></td></tr>
+            <tr><td data-en="LPG Gas" data-bn="গ্যাস">LPG Gas</td><td>2</td><td>cylinder</td><td>৳1,200</td><td>৳2,400</td><td><span class="cat-badge cat-fuel">Fuel</span></td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+    <div id="mg-inventory" style="display:none;">
+      <div class="inventory-grid">
+        <div class="inv-card"><div class="inv-name" data-en="Rice (Miniket)" data-bn="চাল">Rice (Miniket)</div><div class="inv-bar"><div class="inv-fill fill-green" style="width:72%"></div></div><div class="inv-stats"><span class="inv-amount">72 kg</span><span class="inv-status status-ok">OK</span></div></div>
+        <div class="inv-card"><div class="inv-name" data-en="LPG Gas" data-bn="গ্যাস">LPG Gas</div><div class="inv-bar"><div class="inv-fill fill-yellow" style="width:35%"></div></div><div class="inv-stats"><span class="inv-amount">1.4 cyl</span><span class="inv-status status-low">Low</span></div></div>
+        <div class="inv-card"><div class="inv-name" data-en="Mustard Oil" data-bn="তেল">Mustard Oil</div><div class="inv-bar"><div class="inv-fill fill-red" style="width:15%"></div></div><div class="inv-stats"><span class="inv-amount">1.5L</span><span class="inv-status status-critical">Critical</span></div></div>
+        <div class="inv-card"><div class="inv-name" data-en="Lentils (Dal)" data-bn="ডাল">Lentils (Dal)</div><div class="inv-bar"><div class="inv-fill fill-green" style="width:80%"></div></div><div class="inv-stats"><span class="inv-amount">24 kg</span><span class="inv-status status-ok">OK</span></div></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- PROVOST DASHBOARD -->
+<div class="page" id="page-provost-dashboard">
+  <div class="section" style="padding-top:100px;">
+    <div class="section-header">
+      <div class="section-tag" data-en="Provost Access" data-bn="প্রভোস্ট অ্যাক্সেস">Provost Access</div>
+      <h2 class="section-title" data-en="Monitoring <em>Dashboard</em>" data-bn="পর্যবেক্ষণ <em>ড্যাশবোর্ড</em>">Monitoring <em>Dashboard</em></h2>
+    </div>
+    <div class="stats-row">
+      <div class="stat-box"><div class="sb-label" data-en="Active Managers" data-bn="সক্রিয় ম্যানেজার">Active Managers</div><div class="sb-value">4</div><div class="sb-sub" data-en="May 2026" data-bn="মে ২০২৬">May 2026</div></div>
+      <div class="stat-box"><div class="sb-label" data-en="Total Dispensed" data-bn="মোট বিতরণ">Total Dispensed</div><div class="sb-value gold">৳1,25,000</div><div class="sb-sub" data-en="This month" data-bn="এই মাস">This month</div></div>
+      <div class="stat-box"><div class="sb-label" data-en="Total Spent" data-bn="মোট ব্যয়">Total Spent</div><div class="sb-value red">৳42,600</div><div class="sb-sub" data-en="All managers" data-bn="সব ম্যানেজার">All managers</div></div>
+      <div class="stat-box"><div class="sb-label" data-en="Balance" data-bn="ব্যালেন্স">Balance</div><div class="sb-value green">৳82,400</div><div class="sb-sub" data-en="Remaining" data-bn="অবশিষ্ট">Remaining</div></div>
+    </div>
+  </div>
+</div>
+
+<!-- MODAL -->
+<div class="modal-overlay" id="modalOverlay" onclick="closeModalOutside(event)">
+  <div class="modal">
+    <button class="modal-close" onclick="closeModal()">✕</button>
+    <div class="modal-title" data-en="Portal Access" data-bn="পোর্টাল অ্যাক্সেস">Portal Access</div>
+    <div class="modal-sub" data-en="Manager or Provost login" data-bn="ম্যানেজার বা প্রভোস্ট লগইন">Manager or Provost login</div>
+    <div class="modal-tabs">
+      <button class="modal-tab active" onclick="modalTab(this,'manager')" data-en="Manager" data-bn="ম্যানেজার">Manager</button>
+      <button class="modal-tab" onclick="modalTab(this,'provost')" data-en="Provost" data-bn="প্রভোস্ট">Provost</button>
+    </div>
+    <input class="modal-input" type="text" placeholder="Student ID" id="loginId"/>
+    <input class="modal-input" type="password" placeholder="••••••••" id="loginPass"/>
+    <button class="modal-submit" onclick="doLogin()" data-en="Login →" data-bn="লগইন →">Login →</button>
+    <p style="font-size:11px;color:rgba(253,246,227,.25);margin-top:14px;text-align:center;" data-en="Demo: Use any ID and password" data-bn="ডেমো: যেকোনো আইডি ব্যবহার করুন">Demo: Use any ID and password</p>
+  </div>
+</div>
+
+</div>
+
+<script>
+let lang = 'en';
+let loginRole = 'manager';
+
+const gallery = [
+  {name:'Md. Rajib Khan', dept:'CSE', batch:'2022', img:'https://images.unsplash.com/photo-1529156069898-49953e39b3ac?w=400&q=80'},
+  {name:'Fatima Akter', dept:'EEE', batch:'2023', img:'https://images.unsplash.com/photo-1506157786151-b8491531f063?w=400&q=80'},
+  {name:'Ariful Islam', dept:'ME', batch:'2022', img:'https://images.unsplash.com/photo-1507525428034-b723cf961d3e?w=400&q=80'},
+  {name:'Rifa Akter', dept:'ChE', batch:'2024', img:'https://images.unsplash.com/photo-1506905925346-21bda4d32df4?w=400&q=80'},
+  {name:'Hasan Ahmed', dept:'Civil', batch:'2023', img:'https://images.unsplash.com/photo-1469854523086-cc02fe5d8800?w=400&q=80'},
+  {name:'Samina Haque', dept:'Architecture', batch:'2021', img:'https://images.unsplash.com/photo-1501594907352-04cda38ebc29?w=400&q=80'},
+  {name:'Karim Hossain', dept:'CSE', batch:'2024', img:'https://images.unsplash.com/photo-1445821348368-374baf700cb9?w=400&q=80'},
+  {name:'Nargis Sultana', dept:'EEE', batch:'2022', img:'https://images.unsplash.com/photo-1506905925346-21bda4d32df4?w=400&q=80'},
+  {name:'Riyad Khan', dept:'ME', batch:'2023', img:'https://images.unsplash.com/photo-1469854523086-cc02fe5d8800?w=400&q=80'},
+  {name:'Anika Begum', dept:'Civil', batch:'2024', img:'https://images.unsplash.com/photo-1507525428034-b723cf961d3e?w=400&q=80'},
+  {name:'Samir Uddin', dept:'ChE', batch:'2023', img:'https://images.unsplash.com/photo-1506157786151-b8491531f063?w=400&q=80'},
+  {name:'Mina Das', dept:'Architecture', batch:'2022', img:'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=400&q=80'},
+];
+
+const menu = [
+  {time:'7:00 AM', name:'Paratha, Egg Bhaji, Dal', type:'breakfast', badge:'breakfast', items:['Paratha','Egg Bhaji','Dal','Pickle','Tea'], img:'https://images.unsplash.com/photo-1567620905732-2d1ec7ab7445?w=400&q=80'},
+  {time:'12:30 PM', name:'Rice, Rohu Fish Curry, Salad', type:'lunch', badge:'lunch', items:['Rice','Rohu Fish Curry','Mixed Veg','Dal','Salad'], img:'https://images.unsplash.com/photo-1585937421612-70a008356fbe?w=400&q=80'},
+  {time:'7:30 PM', name:'Rice, Chicken Curry, Kheer', type:'dinner', badge:'dinner', items:['Rice','Chicken Curry','Aloo Bhaji','Dal','Kheer'], img:'https://images.unsplash.com/photo-1567188040759-fb8a883dc6d8?w=400&q=80'},
+];
+
+const managers = [
+  {name:'Rafiquzzaman Siam', dept:'CSE', batch:'2022', room:'312C', bio:'Responsible for daily expense management and vendor coordination. Passionate about transparency in mess operations.', img:'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=400&q=80', current:true},
+  {name:'Md. Tanvir Ahmed', dept:'EEE', batch:'2022', room:'204A', bio:'Handles inventory management and market procurement. Committed to providing quality food within budget.', img:'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?w=400&q=80', current:true},
+  {name:'Asif Mahmud Rafi', dept:'ME', batch:'2021', room:'118B', bio:'Oversees student feedback and menu planning. Works to incorporate student preferences into weekly cycles.', img:'https://images.unsplash.com/photo-1519085360753-af0119f7cbe7?w=400&q=80', current:true},
+  {name:'Sabbir Hossain Khan', dept:'ChE', batch:'2022', room:'407D', bio:'Manages financial records and statement generation. Ensures every taka is accounted for and verifiable.', img:'https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?w=400&q=80', current:true},
+];
+
+const contacts = [
+  {role:'Assistant Provost', name:'Dr. Nasrin Akter', phone:'01712-XXXXXX', icon:'🎓', type:'provost'},
+  {role:'Assistant Provost', name:'Dr. S. M. Faruq', phone:'01822-XXXXXX', icon:'🎓', type:'provost'},
+  {role:'Sick Boy / Medical Contact', name:'Milon Hossain', phone:'01933-XXXXXX', icon:'🏥', type:'medical'},
+  {role:'Electrician', name:'Subrata Kumar', phone:'01544-XXXXXX', icon:'⚡', type:'electric'},
+  {role:'Campus Security', name:'BUET Control Room', phone:'02-9665650', icon:'🛡️', type:'security'},
+  {role:'Emergency Contact', name:'Fire Service', phone:'999', icon:'🚒', type:'emergency'}
+];
+
+// Tab Switching
+function showPage(pageId) {
+  document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+  const page = document.getElementById(`page-${pageId}`);
+  if (page) page.classList.add('active');
+  
+  document.querySelectorAll('.nav-link').forEach(l => l.classList.remove('active'));
+  const activeLink = Array.from(document.querySelectorAll('.nav-link')).find(l => {
+    const clickAttr = l.getAttribute('onclick');
+    if (!clickAttr) return false;
+    const match = clickAttr.match(/'([^']+)'/);
+    return match && match[1] === pageId;
+  });
+  if (activeLink) activeLink.classList.add('active');
+}
+
+// Lang Switcher
+function setLang(selectedLang) {
+  lang = selectedLang;
+  document.getElementById('btnEN').classList.toggle('active', lang === 'en');
+  document.getElementById('btnBN').classList.toggle('active', lang === 'bn');
+  
+  if (lang === 'bn') {
+    document.body.classList.add('bn');
+  } else {
+    document.body.classList.remove('bn');
+  }
+  
+  document.querySelectorAll('[data-en]').forEach(el => {
+    const text = el.getAttribute(`data-${lang}`);
+    if (text) {
+      if (el.tagName === 'INPUT' && el.placeholder) {
+        el.placeholder = text;
+      } else {
+        el.innerText = text;
+      }
+    }
+  });
+}
+
+// Modal functions
+function openModal() {
+  document.getElementById('modalOverlay').classList.add('open');
+}
+function closeModal() {
+  document.getElementById('modalOverlay').classList.remove('open');
+}
+function closeModalOutside(event) {
+  if (event.target.id === 'modalOverlay') {
+    closeModal();
+  }
+}
+function modalTab(btn, role) {
+  document.querySelectorAll('.modal-tab').forEach(t => t.classList.remove('active'));
+  btn.classList.add('active');
+  loginRole = role;
+  
+  const idInput = document.getElementById('loginId');
+  if (role === 'provost') {
+    idInput.style.display = 'none';
+  } else {
+    idInput.style.display = 'block';
+  }
+}
+function doLogin() {
+  closeModal();
+  if (loginRole === 'provost') {
+    showPage('provost-dashboard');
+  } else {
+    showPage('manager-dashboard');
+  }
+}
+
+// Manager dashboard tab switching
+function mgTab(btn, tabId) {
+  document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+  btn.classList.add('active');
+  
+  document.getElementById('mg-overview').style.display = tabId === 'overview' ? 'block' : 'none';
+  document.getElementById('mg-expenses').style.display = tabId === 'expenses' ? 'block' : 'none';
+  document.getElementById('mg-inventory').style.display = tabId === 'inventory' ? 'block' : 'none';
+}
+
+// Reaction functionality
+const reactionStats = {
+  breakfast: { like: 12, love: 5, angry: 1 },
+  lunch: { like: 45, love: 18, angry: 2 },
+  dinner: { like: 32, love: 22, angry: 0 }
+};
+
+function react(meal, type) {
+  reactionStats[meal][type]++;
+  document.getElementById(`${meal}-${type}`).innerText = reactionStats[meal][type];
+}
+
+// Initialization and Rendering on DOM Load
+window.addEventListener('DOMContentLoaded', () => {
+  // Render Gallery
+  const galleryGrid = document.getElementById('galleryGrid');
+  if (galleryGrid) {
+    galleryGrid.innerHTML = '';
+    gallery.forEach(item => {
+      galleryGrid.innerHTML += `
+        <div class="gallery-card">
+          <div class="gc-img-wrap">
+            <img src="${item.img}" alt="${item.name}"/>
+          </div>
+          <div class="gc-body">
+            <div class="gc-name">${item.name}</div>
+            <div class="gc-meta">
+              <span class="gc-dept">${item.dept}</span>
+              <span class="gc-batch">Batch ${item.batch}</span>
+            </div>
+          </div>
+        </div>
+      `;
+    });
+  }
+
+  // Render Menu
+  const menuGrid = document.getElementById('menuGrid');
+  if (menuGrid) {
+    menuGrid.innerHTML = '';
+    menu.forEach(item => {
+      menuGrid.innerHTML += `
+        <div class="menu-card">
+          <div class="menu-img">
+            <img src="${item.img}" alt="${item.name}"/>
+            <span class="menu-badge badge-${item.badge}">${item.badge}</span>
+          </div>
+          <div class="menu-body">
+            <div class="menu-time">${item.time}</div>
+            <div class="menu-name">${item.name}</div>
+            <div class="menu-items">
+              ${item.items.map(t => `<span class="menu-tag">${t}</span>`).join('')}
+            </div>
+            <div class="reaction-bar">
+              <button class="react-btn" onclick="react('${item.badge}', 'like')">👍 <span id="${item.badge}-like">${reactionStats[item.badge].like}</span></button>
+              <button class="react-btn" onclick="react('${item.badge}', 'love')">❤️ <span id="${item.badge}-love">${reactionStats[item.badge].love}</span></button>
+              <button class="react-btn" onclick="react('${item.badge}', 'angry')">😡 <span id="${item.badge}-angry">${reactionStats[item.badge].angry}</span></button>
+            </div>
+          </div>
+        </div>
+      `;
+    });
+  }
+
+  // Render Contacts
+  const contactCards = document.getElementById('contactCards');
+  if (contactCards) {
+    contactCards.innerHTML = '';
+    contacts.forEach(item => {
+      contactCards.innerHTML += `
+        <div class="contact-card">
+          <div class="cc-icon icon-${item.type}">${item.icon}</div>
+          <div class="cc-info">
+            <div class="role">${item.role}</div>
+            <div class="name">${item.name}</div>
+            <a href="tel:${item.phone}" class="cc-phone">📞 ${item.phone}</a>
+          </div>
+        </div>
+      `;
+    });
+  }
+
+  // Render Managers
+  const managerGrid = document.getElementById('managerGrid');
+  if (managerGrid) {
+    managerGrid.innerHTML = '';
+    managers.forEach(item => {
+      managerGrid.innerHTML += `
+        <div class="manager-card">
+          <div class="mc-img-wrap">
+            <img src="${item.img}" alt="${item.name}"/>
+            <div class="mc-overlay"></div>
+            <span class="mc-month-badge ${item.current ? 'mc-current' : ''}">
+              ${item.current ? 'Active' : 'Past'}
+            </span>
+          </div>
+          <div class="mc-body">
+            <div class="mc-dept">${item.dept} | Batch ${item.batch}</div>
+            <div class="mc-name">${item.name}</div>
+            <div class="mc-room">Room ${item.room}</div>
+            <p class="mc-bio">"${item.bio}"</p>
+          </div>
+        </div>
+      `;
+    });
+  }
+});
+</script>
+</body>
+</html>
