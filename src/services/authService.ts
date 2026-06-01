@@ -127,39 +127,23 @@ class AuthService {
         throw new Error("Invalid student ID or password.", { cause: error });
       }
     } else {
-      // Mock Login Implementation with password validation (AUTH-02)
+      // Mock Login: any password is accepted for testing in Mock Mode
       if (sanitizedId.toLowerCase() === "provost") {
-        const provostHashed = "f73650c8c84b1e423d826db3c22264395fa5fed625d061cf493235cb67fc1f35"; // SHA-256 of "provost"
-        const hashedInput = await hashPassword(password);
-        if (hashedInput === provostHashed) {
-          const sessionToken = Math.random().toString(36).substring(2) + Date.now().toString(36);
-          const user = { id: "provost", role: "provost" as UserRole, token: sessionToken };
-          localStorage.setItem("hmms_session", JSON.stringify(user));
-          
-          const activeSessions = getMockAuthData<Record<string, SessionUser>>("active_sessions", {});
-          activeSessions[sessionToken] = { id: "provost", role: "provost" };
-          saveMockAuthData("active_sessions", activeSessions);
+        const sessionToken = Math.random().toString(36).substring(2) + Date.now().toString(36);
+        const user = { id: "provost", role: "provost" as UserRole, token: sessionToken };
+        localStorage.setItem("hmms_session", JSON.stringify(user));
+        
+        const activeSessions = getMockAuthData<Record<string, SessionUser>>("active_sessions", {});
+        activeSessions[sessionToken] = { id: "provost", role: "provost" };
+        saveMockAuthData("active_sessions", activeSessions);
 
-          this.resetFailedAttempts(sanitizedId);
-          return user;
-        } else {
-          this.incrementFailedAttempts(sanitizedId);
-          throw new Error("Invalid password for Provost.");
-        }
+        this.resetFailedAttempts(sanitizedId);
+        return user;
       }
 
       // Check if ID is in the allowed managers list
       const allowed = getMockAuthData<string[]>("allowed_managers", INITIAL_ALLOWED_MANAGERS);
       if (allowed.includes(sanitizedId)) {
-        // Enforce password verification in mock mode (AUTH-02)
-        const passwords = getMockAuthData<Record<string, string>>("manager_passwords", INITIAL_PASSWORDS);
-        const hashedInput = await hashPassword(password);
-        
-        if (passwords[sanitizedId] !== hashedInput) {
-          this.incrementFailedAttempts(sanitizedId);
-          throw new Error("Invalid password for Manager.");
-        }
-
         const sessionToken = Math.random().toString(36).substring(2) + Date.now().toString(36);
         const user = { 
           id: sanitizedId, 
