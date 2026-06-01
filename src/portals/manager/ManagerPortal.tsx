@@ -9,6 +9,8 @@ import type { ManagerProfile, ExpenseItem, DayExpenses, MenuItem, InventoryItem,
 import { authService } from "../../services/authService";
 import type { SessionUser } from "../../services/authService";
 import { generateLedgerPdf } from "../../utils/pdfGenerator";
+import { isFirebaseEnabled, storage } from "../../firebase/config";
+import { ref, uploadBytes, getDownloadURL } from "firebase/storage";
 
 interface ManagerPortalProps {
   currentUser: SessionUser | null;
@@ -193,6 +195,44 @@ export const ManagerPortal: React.FC<ManagerPortalProps> = ({ currentUser, addTo
     setAiInventoryAlerts(alerts);
   }
 
+  // Photo upload states (DATA-NEW-01)
+  const [uploadingPhoto, setUploadingPhoto] = useState(false);
+
+  const handlePhotoChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    if (!file.type.startsWith("image/")) {
+      addToast("Please upload a valid image file.", "error");
+      return;
+    }
+
+    setUploadingPhoto(true);
+
+    try {
+      if (isFirebaseEnabled && storage) {
+        const storageRef = ref(storage, `profiles/${managerId}/${Date.now()}_${file.name}`);
+        const snapshot = await uploadBytes(storageRef, file);
+        const downloadUrl = await getDownloadURL(snapshot.ref);
+        setSetupForm(prev => ({ ...prev, photoUrl: downloadUrl }));
+        addToast("Profile photo uploaded successfully!", "success");
+      } else {
+        const reader = new FileReader();
+        reader.onload = (event) => {
+          const url = event.target?.result as string;
+          setSetupForm(prev => ({ ...prev, photoUrl: url }));
+          addToast("Profile photo loaded (mock mode)!", "success");
+        };
+        reader.readAsDataURL(file);
+      }
+    } catch (err) {
+      console.error(err);
+      addToast("Failed to upload profile photo.", "error");
+    } finally {
+      setUploadingPhoto(false);
+    }
+  };
+
   // Handle Profile Setup
   const handleProfileSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -271,10 +311,21 @@ export const ManagerPortal: React.FC<ManagerPortalProps> = ({ currentUser, addTo
       return;
     }
 
+    // Expense input length limit and sanitization (EXPENSE-INPUT)
+    const sanitizedName = newItem.name
+      .replace(/[<>"']/g, "")
+      .trim()
+      .substring(0, 100);
+
+    if (!sanitizedName) {
+      addToast("Invalid item name after sanitization.", "error");
+      return;
+    }
+
     const itemTotal = newItem.quantity * newItem.unitPrice;
     const addedItem: ExpenseItem = {
       id: Math.random().toString(36).substring(2, 9),
-      name: newItem.name,
+      name: sanitizedName,
       quantity: newItem.quantity,
       unit: newItem.unit,
       unitPrice: newItem.unitPrice,
@@ -592,6 +643,32 @@ export const ManagerPortal: React.FC<ManagerPortalProps> = ({ currentUser, addTo
               />
             </div>
 
+            {/* Profile Photo Upload Field (DATA-NEW-01) */}
+            <div>
+              <label className="block text-[10px] font-bold uppercase text-muted-foreground mb-2">Profile Photo</label>
+              <div className="flex items-center gap-4">
+                <img 
+                  src={setupForm.photoUrl} 
+                  alt="Preview" 
+                  className="h-16 w-16 rounded-2xl object-cover border border-border/40"
+                />
+                <input
+                  type="file"
+                  accept="image/*"
+                  onChange={handlePhotoChange}
+                  className="hidden"
+                  id="profile-photo-upload"
+                  disabled={uploadingPhoto}
+                />
+                <label
+                  htmlFor="profile-photo-upload"
+                  className="px-4 py-2 bg-muted hover:bg-muted/80 text-xs font-bold rounded-xl cursor-pointer border border-border/60 transition-colors"
+                >
+                  {uploadingPhoto ? "Uploading..." : "Upload Photo"}
+                </label>
+              </div>
+            </div>
+
             <div>
               <label className="block text-[10px] font-bold uppercase text-muted-foreground mb-1">Full Name</label>
               <input
@@ -752,6 +829,7 @@ export const ManagerPortal: React.FC<ManagerPortalProps> = ({ currentUser, addTo
                           onChange={(e) => setNewItem(prev => ({ ...prev, name: e.target.value }))}
                           placeholder="e.g. Broiler Chicken"
                           className="w-full px-3 py-2 bg-card border border-border/60 rounded-xl text-xs focus:outline-none"
+                          maxLength={100}
                           required
                         />
                       </div>

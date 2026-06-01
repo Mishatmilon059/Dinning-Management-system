@@ -129,7 +129,9 @@ class AuthService {
     } else {
       // Mock Login Implementation with password validation (AUTH-02)
       if (sanitizedId.toLowerCase() === "provost") {
-        if (password === "provost") {
+        const provostHashed = "f73650c8c84b1e423d826db3c22264395fa5fed625d061cf493235cb67fc1f35"; // SHA-256 of "provost"
+        const hashedInput = await hashPassword(password);
+        if (hashedInput === provostHashed) {
           const sessionToken = Math.random().toString(36).substring(2) + Date.now().toString(36);
           const user = { id: "provost", role: "provost" as UserRole, token: sessionToken };
           localStorage.setItem("hmms_session", JSON.stringify(user));

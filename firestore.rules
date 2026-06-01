@@ -38,7 +38,9 @@ service cloud.firestore {
     // Daily Expenses
     match /expenses/{managerId}/days/{date} {
       allow read: if isProvost() || isManager(managerId) || isAuthenticated();
-      allow write: if isManager(managerId) && !resource.data.isLocked;
+      allow create: if isManager(managerId);
+      allow update: if isManager(managerId) && !resource.data.isLocked && request.resource.data.isLocked == resource.data.isLocked;
+      allow delete: if isManager(managerId) && !resource.data.isLocked;
     }
 
     // Menus
@@ -73,7 +75,7 @@ service cloud.firestore {
     // Notices & Deadlines
     match /notices/{docId} {
       allow read: if true;
-      allow write: if isAuthenticated();
+      allow write: if isProvost();
     }
 
     // Contacts
@@ -85,7 +87,8 @@ service cloud.firestore {
     // Complaints
     match /complaints/{complaintId} {
       allow read: if isAuthenticated() || isProvost();
-      allow write: if isAuthenticated();
+      allow create, update: if isAuthenticated();
+      allow delete: if isProvost();
     }
 
     // Broadcasts

@@ -61,20 +61,6 @@ export const Login: React.FC<LoginProps> = ({ onLoginSuccess, addToast }) => {
           </p>
         </div>
 
-        {/* Local Test Help Box */}
-        <div className="bg-white/[0.01] border border-white/5 p-4 rounded-[16px] text-xs space-y-1.5 text-foreground/50 leading-relaxed">
-          <span className="block font-bold text-primary flex items-center gap-1.5 mb-1 text-[10px] uppercase tracking-wider">
-            <AlertCircle size={12} />
-            Quick Test Credentials
-          </span>
-          <p>
-            • <strong>Provost:</strong> Username <code className="font-mono text-foreground/75 px-1 bg-white/5 rounded">provost</code>, Password <code className="font-mono text-foreground/75 px-1 bg-white/5 rounded">provost</code>
-          </p>
-          <p>
-            • <strong>Mess Manager:</strong> Username <code className="font-mono text-foreground/75 px-1 bg-white/5 rounded">2012001</code> or <code className="font-mono text-foreground/75 px-1 bg-white/5 rounded">2012002</code> (Any password works in Mock Mode)
-          </p>
-        </div>
-
         {/* Login Form */}
         <form className="mt-8 space-y-4" onSubmit={handleSubmit}>
           {error && (
