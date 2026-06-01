@@ -1,10 +1,11 @@
 import React, { useState, useEffect } from "react";
 import { 
   UserPlus, ListFilter, Phone, Trash2, 
-  Edit2, Send, CheckCircle2, ShieldOff 
+  Edit2, Send, CheckCircle2, ShieldOff,
+  Activity
 } from "lucide-react";
 import { dbService } from "../../services/dbService";
-import type { DayExpenses, Contact, Broadcast, Complaint, ManagerProfile } from "../../services/dbService";
+import type { DayExpenses, Contact, Broadcast, Complaint, ManagerProfile, AuditLogEntry } from "../../services/dbService";
 import { authService } from "../../services/authService";
 
 interface ProvostPortalProps {
@@ -12,7 +13,12 @@ interface ProvostPortalProps {
 }
 
 export const ProvostPortal: React.FC<ProvostPortalProps> = ({ addToast }) => {
-  const [activeSubTab, setActiveSubTab] = useState<"audit" | "managers" | "broadcasts" | "contacts">("audit");
+  const [activeSubTab, setActiveSubTab] = useState<"audit" | "managers" | "broadcasts" | "contacts" | "logs">("audit");
+
+  // Pagination states (SCALE-01)
+  const [auditPage, setAuditPage] = useState(1);
+  const [broadcastsPage, setBroadcastsPage] = useState(1);
+  const [complaintsPage, setComplaintsPage] = useState(1);
 
   // State for registries
   const [allowedManagerIds, setAllowedManagerIds] = useState<string[]>([]);
@@ -45,6 +51,7 @@ export const ProvostPortal: React.FC<ProvostPortalProps> = ({ addToast }) => {
 
   // Complaints states
   const [complaints, setComplaints] = useState<Complaint[]>([]);
+  const [auditLogs, setAuditLogs] = useState<AuditLogEntry[]>([]);
 
   // Load Data
   useEffect(() => {
@@ -71,10 +78,21 @@ export const ProvostPortal: React.FC<ProvostPortalProps> = ({ addToast }) => {
       const fetchedComplaints = await dbService.getComplaints();
       // Only show formally submitted complaints
       setComplaints(fetchedComplaints.filter(c => c.status === "submitted"));
+
+      // Audit logs
+      const logs = await dbService.getAuditLogs();
+      setAuditLogs(logs);
     };
 
     loadProvostData();
   }, []);
+
+  // Reload logs when logs tab is active
+  useEffect(() => {
+    if (activeSubTab === "logs") {
+      dbService.getAuditLogs().then(setAuditLogs);
+    }
+  }, [activeSubTab]);
 
   // Load selected manager audit records
   useEffect(() => {
@@ -86,6 +104,7 @@ export const ProvostPortal: React.FC<ProvostPortalProps> = ({ addToast }) => {
 
       const cash = await dbService.getCashCollection(selectedAuditManager);
       setAuditCashCollection(cash);
+      setAuditPage(1);
     };
 
     loadAudit();
@@ -142,7 +161,7 @@ export const ProvostPortal: React.FC<ProvostPortalProps> = ({ addToast }) => {
       title: newBroadcast.title,
       body: newBroadcast.body,
       publishDate: new Date().toISOString().split("T")[0],
-      expiryDate: newBroadcast.expiryDate || undefined
+      expiryDate: newBroadcast.expiryDate ? `${newBroadcast.expiryDate}T23:59:59+06:00` : undefined
     };
 
     try {
@@ -152,6 +171,19 @@ export const ProvostPortal: React.FC<ProvostPortalProps> = ({ addToast }) => {
       addToast("New broadcast published to Student Portal!", "success");
     } catch {
       addToast("Failed to publish broadcast.", "error");
+    }
+  };
+
+  // Provost action: delete broadcast notice (FEAT-03)
+  const handleDeleteBroadcast = async (id: string) => {
+    if (window.confirm("Are you sure you want to delete this broadcast notice?")) {
+      try {
+        await dbService.deleteBroadcast(id);
+        setBroadcasts(prev => prev.filter(b => b.id !== id));
+        addToast("Broadcast notice deleted successfully.", "info");
+      } catch {
+        addToast("Failed to delete broadcast notice.", "error");
+      }
     }
   };
 
@@ -219,11 +251,12 @@ export const ProvostPortal: React.FC<ProvostPortalProps> = ({ addToast }) => {
             { id: "audit", label: "Ledger Audit", icon: <ListFilter size={14} /> },
             { id: "managers", label: "Manager Registrations", icon: <UserPlus size={14} /> },
             { id: "broadcasts", label: "Broadcast Notices", icon: <Send size={14} /> },
-            { id: "contacts", label: "Contacts Directory", icon: <Phone size={14} /> }
+            { id: "contacts", label: "Contacts Directory", icon: <Phone size={14} /> },
+            { id: "logs", label: "System Logs", icon: <Activity size={14} /> }
           ].map(tab => (
             <button
               key={tab.id}
-              onClick={() => setActiveSubTab(tab.id as "audit" | "managers" | "broadcasts" | "contacts")}
+              onClick={() => setActiveSubTab(tab.id as "audit" | "managers" | "broadcasts" | "contacts" | "logs")}
               className={`flex items-center gap-1.5 px-4 py-3 text-xs font-bold border-b-2 transition-all duration-200 ${
                 activeSubTab === tab.id 
                   ? "border-primary text-primary" 
@@ -277,7 +310,7 @@ export const ProvostPortal: React.FC<ProvostPortalProps> = ({ addToast }) => {
                       </tr>
                     </thead>
                     <tbody>
-                      {auditExpenses.map(day => (
+                      {auditExpenses.slice((auditPage - 1) * 10, auditPage * 10).map(day => (
                         <tr key={day.date} className="border-b border-border/30 hover:bg-muted/10 transition-colors">
                           <td className="py-2.5 px-4 font-semibold text-foreground">{day.date}</td>
                           <td className="py-2.5 px-4">{day.items.length} items logged</td>
@@ -303,6 +336,27 @@ export const ProvostPortal: React.FC<ProvostPortalProps> = ({ addToast }) => {
                     </tbody>
                   </table>
                 </div>
+                {auditExpenses.length > 10 && (
+                  <div className="flex justify-between items-center mt-4 text-xs">
+                    <button
+                      disabled={auditPage === 1}
+                      onClick={() => setAuditPage(prev => Math.max(prev - 1, 1))}
+                      className="px-3 py-1.5 bg-muted border border-border/50 rounded-xl font-bold disabled:opacity-50 hover:bg-muted/80 transition-colors"
+                    >
+                      Previous
+                    </button>
+                    <span className="text-muted-foreground">
+                      Page {auditPage} of {Math.ceil(auditExpenses.length / 10)}
+                    </span>
+                    <button
+                      disabled={auditPage * 10 >= auditExpenses.length}
+                      onClick={() => setAuditPage(prev => prev + 1)}
+                      className="px-3 py-1.5 bg-muted border border-border/50 rounded-xl font-bold disabled:opacity-50 hover:bg-muted/80 transition-colors"
+                    >
+                      Next
+                    </button>
+                  </div>
+                )}
               </div>
             </div>
 
@@ -332,8 +386,8 @@ export const ProvostPortal: React.FC<ProvostPortalProps> = ({ addToast }) => {
               {/* Complaints Inbox */}
               <div className="bg-card border border-border/50 rounded-3xl p-6 shadow-sm">
                 <h3 className="text-base font-bold text-foreground mb-4">Complaints Inbox</h3>
-                <div className="space-y-3 max-h-[300px] overflow-y-auto pr-1">
-                  {complaints.map(item => (
+                <div className="space-y-3 max-h-[400px] overflow-y-auto pr-1">
+                  {complaints.slice((complaintsPage - 1) * 5, complaintsPage * 5).map(item => (
                     <div key={item.id} className="p-3 bg-muted/40 border border-border/50 rounded-2xl text-xs space-y-1.5">
                       <div className="flex justify-between items-center">
                         <span className="font-bold text-primary">{item.category}</span>
@@ -348,6 +402,27 @@ export const ProvostPortal: React.FC<ProvostPortalProps> = ({ addToast }) => {
                   {complaints.length === 0 && (
                     <div className="text-center py-6 text-xs text-muted-foreground select-none">
                       No complaints submitted to provost.
+                    </div>
+                  )}
+                  {complaints.length > 5 && (
+                    <div className="flex justify-between items-center mt-2 pt-2 border-t border-border/20 text-[10px]">
+                      <button
+                        disabled={complaintsPage === 1}
+                        onClick={() => setComplaintsPage(prev => Math.max(prev - 1, 1))}
+                        className="px-2 py-1 bg-muted rounded disabled:opacity-50 font-bold"
+                      >
+                        Prev
+                      </button>
+                      <span className="text-muted-foreground">
+                        Page {complaintsPage} of {Math.ceil(complaints.length / 5)}
+                      </span>
+                      <button
+                        disabled={complaintsPage * 5 >= complaints.length}
+                        onClick={() => setComplaintsPage(prev => prev + 1)}
+                        className="px-2 py-1 bg-muted rounded disabled:opacity-50 font-bold"
+                      >
+                        Next
+                      </button>
                     </div>
                   )}
                 </div>
@@ -440,11 +515,20 @@ export const ProvostPortal: React.FC<ProvostPortalProps> = ({ addToast }) => {
               <h3 className="text-lg font-bold text-foreground mb-4">Past Broadcast Log</h3>
               
               <div className="space-y-4">
-                {broadcasts.map(item => (
+                {broadcasts.slice((broadcastsPage - 1) * 5, broadcastsPage * 5).map(item => (
                   <div key={item.id} className="p-4 rounded-2xl bg-muted/20 border border-border/30 text-xs">
                     <div className="flex justify-between items-center mb-1">
                       <span className="font-bold text-foreground">{item.title}</span>
-                      <span className="text-[9px] text-muted-foreground">Published: {item.publishDate}</span>
+                      <div className="flex items-center gap-2">
+                        <span className="text-[9px] text-muted-foreground">Published: {item.publishDate}</span>
+                        <button
+                          onClick={() => handleDeleteBroadcast(item.id)}
+                          className="text-rose-500 hover:text-rose-700 p-1 hover:bg-rose-50 dark:hover:bg-rose-950/20 rounded transition-colors"
+                          title="Delete Notice"
+                        >
+                          <Trash2 size={12} />
+                        </button>
+                      </div>
                     </div>
                     <p className="text-muted-foreground leading-relaxed">{item.body}</p>
                     {item.expiryDate && (
@@ -455,6 +539,27 @@ export const ProvostPortal: React.FC<ProvostPortalProps> = ({ addToast }) => {
                   </div>
                 ))}
               </div>
+              {broadcasts.length > 5 && (
+                <div className="flex justify-between items-center mt-4 text-xs">
+                  <button
+                    disabled={broadcastsPage === 1}
+                    onClick={() => setBroadcastsPage(prev => Math.max(prev - 1, 1))}
+                    className="px-3 py-1.5 bg-muted border border-border/50 rounded-xl font-bold disabled:opacity-50 hover:bg-muted/80 transition-colors"
+                  >
+                    Previous
+                  </button>
+                  <span className="text-muted-foreground">
+                    Page {broadcastsPage} of {Math.ceil(broadcasts.length / 5)}
+                  </span>
+                  <button
+                    disabled={broadcastsPage * 5 >= broadcasts.length}
+                    onClick={() => setBroadcastsPage(prev => prev + 1)}
+                    className="px-3 py-1.5 bg-muted border border-border/50 rounded-xl font-bold disabled:opacity-50 hover:bg-muted/80 transition-colors"
+                  >
+                    Next
+                  </button>
+                </div>
+              )}
             </div>
 
             {/* Broadcast Creation Form */}
@@ -622,6 +727,48 @@ export const ProvostPortal: React.FC<ProvostPortalProps> = ({ addToast }) => {
                   )}
                 </div>
               </form>
+            </div>
+          </div>
+        )}
+
+        {/* 5. SYSTEM AUDIT LOGS SUB-TAB (FEAT-02) */}
+        {activeSubTab === "logs" && (
+          <div className="bg-card border border-border/50 rounded-3xl p-6 sm:p-8 shadow-sm">
+            <h3 className="text-lg font-bold text-foreground mb-4">System Administrative Audit Trail</h3>
+            <div className="overflow-x-auto">
+              <table className="w-full text-left text-xs border-collapse">
+                <thead>
+                  <tr className="border-b border-border/60 text-muted-foreground uppercase font-bold text-[9px] tracking-wider bg-muted/20">
+                    <th className="py-2.5 px-4">Timestamp</th>
+                    <th className="py-2.5 px-4">User ID</th>
+                    <th className="py-2.5 px-4">Action</th>
+                    <th className="py-2.5 px-4">Details</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {auditLogs.map((log) => (
+                    <tr key={log.id} className="border-b border-border/30 hover:bg-muted/10 transition-colors">
+                      <td className="py-2.5 px-4 font-mono text-muted-foreground">
+                        {new Date(log.timestamp).toLocaleString()}
+                      </td>
+                      <td className="py-2.5 px-4 font-semibold text-foreground">{log.userId}</td>
+                      <td className="py-2.5 px-4">
+                        <span className="px-2 py-0.5 rounded-md text-[9px] font-bold uppercase bg-primary/10 border border-primary/20 text-primary">
+                          {log.actionType}
+                        </span>
+                      </td>
+                      <td className="py-2.5 px-4 font-mono text-muted-foreground break-all">{log.details}</td>
+                    </tr>
+                  ))}
+                  {auditLogs.length === 0 && (
+                    <tr>
+                      <td colSpan={4} className="text-center py-8 text-muted-foreground select-none">
+                        No logs recorded yet.
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
             </div>
           </div>
         )}

@@ -32,7 +32,6 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
   // --- STATE FOR DATA ---
   const [menu, setMenu] = useState<MenuItem | null>(null);
   const [reactions, setReactions] = useState<Record<string, number>>({ like: 0, love: 0, angry: 0 });
-  const [comments, setComments] = useState<Comment[]>([]);
   const [contacts, setContacts] = useState<Contact[]>([]);
   const [broadcasts, setBroadcasts] = useState<Broadcast[]>([]);
   const [paymentDeadline, setPaymentDeadline] = useState<string>("");
@@ -40,6 +39,16 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
   const [managers, setManagers] = useState<ManagerProfile[]>([]);
   const [selectedMonth, setSelectedMonth] = useState<string>("");
   const [costAnalysis, setCostAnalysis] = useState<string>("");
+
+  // Student verification states (FEAT-01)
+  const [studentId, setStudentId] = useState<string | null>(() => localStorage.getItem("hmms_student_id"));
+  const [verificationModalOpen, setVerificationModalOpen] = useState(false);
+  const [tempId, setTempId] = useState("");
+
+  // Paginated comments states (SCALE-01)
+  const [commentsPage, setCommentsPage] = useState<Comment[]>([]);
+  const [lastDocComments, setLastDocComments] = useState<any>(null);
+  const [hasMoreComments, setHasMoreComments] = useState(false);
 
   // Input states
   const [commentText, setCommentText] = useState("");
@@ -51,18 +60,35 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
 
   const formattedDate = new Date().toISOString().split("T")[0]; // YYYY-MM-DD
 
+  // Fetch comments in pages (SCALE-01)
+  const loadComments = async (reset = false) => {
+    try {
+      const cursor = reset ? null : lastDocComments;
+      const res = await dbService.getFeedbackPaginated(formattedDate, 10, cursor);
+      if (reset) {
+        setCommentsPage(res.items);
+      } else {
+        setCommentsPage(prev => [...prev, ...res.items]);
+      }
+      setLastDocComments(res.lastDoc);
+      setHasMoreComments(res.hasMore);
+    } catch (err) {
+      console.error("Failed to load comments:", err);
+    }
+  };
+
   // Fetch Data
   useEffect(() => {
     const loadData = async () => {
-      // Menu & Reactions & Comments
+      // Menu & Reactions
       const fetchedMenu = await dbService.getMenu(formattedDate);
       setMenu(fetchedMenu);
 
       const fetchedReactions = await dbService.getReactions(formattedDate);
       setReactions(fetchedReactions);
 
-      const fetchedComments = await dbService.getFeedback(formattedDate);
-      setComments(fetchedComments);
+      // Load first page of comments
+      await loadComments(true);
 
       // Contacts
       const fetchedContacts = await dbService.getContacts();
@@ -70,7 +96,7 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
 
       // Broadcasts & Notices
       const fetchedBroadcasts = await dbService.getBroadcasts();
-      // Exclude expired broadcasts
+      // Exclude expired broadcasts (timezone verified)
       const activeBroadcasts = fetchedBroadcasts.filter(b => {
         if (!b.expiryDate) return true;
         return new Date(b.expiryDate) >= new Date();
@@ -85,15 +111,21 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
       const fetchedManagers = await dbService.getManagers();
       setManagers(fetchedManagers);
       if (fetchedManagers.length > 0) {
-        // Set default month to currently active manager's month
         setSelectedMonth(fetchedManagers[0].month);
       }
 
-      // Check localStorage for prior votes
-      const voteKey = `hmms_voted_${formattedDate}`;
-      const votedStr = localStorage.getItem(voteKey);
-      if (votedStr) {
-        setHasVoted(JSON.parse(votedStr));
+      // Check database and local storage for prior votes (FUNC-05)
+      if (studentId) {
+        const voted = await dbService.hasVoted(formattedDate, studentId);
+        if (voted) {
+          setHasVoted({ like: true, love: true, angry: true });
+        }
+      } else {
+        const voteKey = `hmms_voted_${formattedDate}`;
+        const votedStr = localStorage.getItem(voteKey);
+        if (votedStr) {
+          setHasVoted(JSON.parse(votedStr));
+        }
       }
 
       // Simulated Cost Analysis (Toggleable from Manager)
@@ -108,7 +140,7 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
     };
 
     loadData();
-  }, [formattedDate, lang]);
+  }, [formattedDate, lang, studentId]);
 
   // Countdown Timer ticking
   useEffect(() => {
@@ -139,11 +171,21 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
 
   // Handle Emoji Click
   const handleReaction = async (type: "like" | "love" | "angry") => {
-    if (hasVoted[type]) {
+    if (!studentId) {
+      setVerificationModalOpen(true);
+      addToast(
+        lang === "en" ? "Please verify your Resident ID to participate in polls." : "পোলগুলিতে অংশ নিতে অনুগ্রহ করে আপনার রেসিডেন্ট আইডি যাচাই করুন।",
+        "info"
+      );
+      return;
+    }
+
+    const alreadyVoted = await dbService.hasVoted(formattedDate, studentId);
+    if (alreadyVoted) {
       addToast(
         lang === "en" 
-          ? "You have already submitted this reaction today." 
-          : "আপনি আজকে ইতিমধ্যে এই প্রতিক্রিয়াটি জমা দিয়েছেন।", 
+          ? "You have already submitted a reaction today." 
+          : "আপনি আজকে ইতিমধ্যে একটি প্রতিক্রিয়া জমা দিয়েছেন।", 
         "info"
       );
       return;
@@ -151,35 +193,66 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
 
     // Optimistic UI update
     setReactions(prev => ({ ...prev, [type]: (prev[type] || 0) + 1 }));
-
-    const updatedVoted = { ...hasVoted, [type]: true };
-    setHasVoted(updatedVoted);
-    localStorage.setItem(`hmms_voted_${formattedDate}`, JSON.stringify(updatedVoted));
+    setHasVoted({ like: true, love: true, angry: true });
 
     try {
-      await dbService.addReaction(formattedDate, type);
+      await dbService.addReaction(formattedDate, type, studentId);
       addToast(
         lang === "en" ? "Reaction submitted successfully!" : "প্রতিক্রিয়া সফলভাবে জমা হয়েছে!", 
         "success"
       );
-    } catch {
-      addToast(
-        lang === "en" ? "Failed to record reaction." : "প্রতিক্রিয়া রেকর্ড করতে ব্যর্থ হয়েছে।", 
-        "error"
-      );
+    } catch (err) {
+      // Rollback reaction state
+      setReactions(prev => ({ ...prev, [type]: Math.max(0, (prev[type] || 1) - 1) }));
+      setHasVoted({});
+      const errMsg = err instanceof Error ? err.message : "Failed to record reaction.";
+      addToast(errMsg, "error");
     }
   };
 
-  // Submit Comments
+  // Submit Comments (DATA-05, FEAT-01)
   const handleCommentSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!commentText.trim()) return;
 
+    if (!studentId) {
+      setVerificationModalOpen(true);
+      addToast(
+        lang === "en" ? "Please verify your Resident ID to submit comments." : "মন্তব্য জমা দিতে অনুগ্রহ করে আপনার রেসিডেন্ট আইডি যাচাই করুন।",
+        "info"
+      );
+      return;
+    }
+
+    if (commentText.length > 500) {
+      addToast(
+        lang === "en" ? "Comment exceeds the maximum length of 500 characters." : "মন্তব্য সর্বোচ্চ ৫০০ অক্ষরের বেশি হতে পারবে না।",
+        "error"
+      );
+      return;
+    }
+
+    const lastSubmit = localStorage.getItem("hmms_last_feedback_submit");
+    if (lastSubmit) {
+      const diff = Date.now() - parseInt(lastSubmit, 10);
+      if (diff < 30000) {
+        const remaining = Math.ceil((30000 - diff) / 1000);
+        addToast(
+          lang === "en" 
+            ? `Please wait ${remaining} seconds before submitting another feedback.` 
+            : `আরেকটি মন্তব্য জমা দেওয়ার আগে দয়া করে ${remaining} সেকেন্ড অপেক্ষা করুন।`,
+          "error"
+        );
+        return;
+      }
+    }
+
     try {
       const newComment = await dbService.addFeedback(formattedDate, commentText, studentName);
-      setComments(prev => [newComment, ...prev]);
+      setCommentsPage(prev => [newComment, ...prev]);
       setCommentText("");
       setStudentName("");
+      localStorage.setItem("hmms_last_feedback_submit", Date.now().toString());
       addToast(
         lang === "en" ? "Comment submitted anonymously!" : "মন্তব্য বেনামে সফলভাবে জমা হয়েছে!", 
         "success"
@@ -190,6 +263,69 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
         "error"
       );
     }
+  };
+
+  // Verification Modal markup (FEAT-01)
+  const renderVerificationModal = () => {
+    if (!verificationModalOpen) return null;
+    return (
+      <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-[9999] flex items-center justify-center p-4">
+        <div className="bg-card border border-border/50 max-w-md w-full rounded-3xl p-6 sm:p-8 space-y-4">
+          <h3 className="text-lg font-serif font-bold text-foreground">
+            {lang === "en" ? "Verify Sher-E-Bangla Resident ID" : "শেরে বাংলা আবাসিক আইডি যাচাই করুন"}
+          </h3>
+          <p className="text-xs text-muted-foreground leading-relaxed">
+            {lang === "en"
+              ? "To prevent non-resident spam, voting and feedback comments require a one-time 7-digit BUET Student ID verification."
+              : "বহিরাগত স্প্যাম প্রতিরোধ করতে, পোল ভোট এবং মন্তব্য প্রদানের জন্য ৭-ডিজিটের বুয়েট স্টুডেন্ট আইডি যাচাইকরণ আবশ্যক।"}
+          </p>
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              if (!/^\d{7}$/.test(tempId)) {
+                addToast(
+                  lang === "en" ? "ID must be exactly 7 digits." : "আইডি অবশ্যই ঠিক ৭ ডিজিটের হতে হবে।",
+                  "error"
+                );
+                return;
+              }
+              localStorage.setItem("hmms_student_id", tempId);
+              setStudentId(tempId);
+              setVerificationModalOpen(false);
+              addToast(
+                lang === "en" ? "Resident ID verified successfully!" : "আবাসিক আইডি সফলভাবে যাচাই করা হয়েছে!",
+                "success"
+              );
+            }}
+            className="space-y-3"
+          >
+            <input
+              type="text"
+              value={tempId}
+              onChange={(e) => setTempId(e.target.value.replace(/\D/g, "").slice(0, 7))}
+              placeholder="e.g. 2012003"
+              className="w-full px-4 py-2.5 bg-muted/40 border border-border/60 rounded-xl text-sm focus:outline-none"
+              required
+            />
+            <div className="flex gap-2">
+              <button
+                type="submit"
+                className="flex-1 py-2.5 bg-primary text-background rounded-xl text-xs font-bold transition-all"
+              >
+                {lang === "en" ? "Verify ID" : "আইডি যাচাই করুন"}
+              </button>
+              <button
+                type="button"
+                onClick={() => setVerificationModalOpen(false)}
+                className="px-4 bg-muted hover:bg-muted/80 rounded-xl text-xs font-bold text-foreground"
+              >
+                {lang === "en" ? "Cancel" : "বাতিল"}
+              </button>
+            </div>
+          </form>
+        </div>
+      </div>
+    );
   };
 
   // Page Transition variants
@@ -537,12 +673,12 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
 
                       {/* Comments Feed */}
                       <div className="mt-8 space-y-4 border-t border-white/5 pt-6">
-                        {comments.length === 0 ? (
+                        {commentsPage.length === 0 ? (
                           <div className="text-center py-8 border border-dashed border-white/5 rounded-2xl text-xs text-foreground/45">
                             {lang === "en" ? "No comments logged for today's meals yet." : "আজকের খাবার সম্পর্কে এখনো কোনো প্রতিক্রিয়া নেই।"}
                           </div>
                         ) : (
-                          comments.map(c => (
+                          commentsPage.map(c => (
                             <div 
                               key={c.id} 
                               className={`p-4 rounded-xl border transition-all duration-300 ${
@@ -571,6 +707,15 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
                               )}
                             </div>
                           ))
+                        )}
+                        
+                        {hasMoreComments && (
+                          <button
+                            onClick={() => loadComments(false)}
+                            className="w-full mt-4 py-2.5 bg-white/5 border border-white/10 hover:bg-white/10 text-foreground rounded-xl text-xs font-bold transition-all"
+                          >
+                            {lang === "en" ? "Load More Comments" : "আরও মন্তব্য দেখুন"}
+                          </button>
                         )}
                       </div>
                     </div>
@@ -946,6 +1091,7 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
           </motion.div>
         </AnimatePresence>
       </main>
+      {renderVerificationModal()}
     </div>
   );
 };

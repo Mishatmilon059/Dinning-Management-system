@@ -1,0 +1,109 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Helper functions
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+    
+    function getUserEmail() {
+      return request.auth.token.email;
+    }
+    
+    function isProvost() {
+      return isAuthenticated() && getUserEmail() == 'provost@hall.buet.ac.bd';
+    }
+    
+    function isManager(managerId) {
+      return isAuthenticated() && getUserEmail() == managerId + '@dept.buet.ac.bd';
+    }
+
+    // Default deny
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Managers profiles
+    match /managers/{managerId} {
+      allow read: if true;
+      allow write: if isProvost() || isManager(managerId);
+    }
+
+    // Cash collection
+    match /cashCollection/{managerId} {
+      allow read: if isProvost() || isManager(managerId);
+      allow write: if isProvost() || isManager(managerId);
+    }
+
+    // Daily Expenses
+    match /expenses/{managerId}/days/{date} {
+      allow read: if isProvost() || isManager(managerId) || isAuthenticated();
+      allow write: if isManager(managerId) && !resource.data.isLocked;
+    }
+
+    // Menus
+    match /menus/{date} {
+      allow read: if true;
+      allow write: if isAuthenticated(); // Provost or manager
+    }
+
+    // Inventory
+    match /inventory/{managerId}/items/{itemId} {
+      allow read: if isProvost() || isManager(managerId);
+      allow write: if isManager(managerId);
+    }
+
+    // Feedback Comments
+    match /feedback/{date}/comments/{commentId} {
+      allow read: if true;
+      allow create: if true; // Any visitor can post feedback
+      allow update, delete: if isAuthenticated(); // Only staff can moderate/highlight
+    }
+
+    // Reactions
+    match /reactions/{date} {
+      allow read: if true;
+      allow write: if true; // Increment reactions
+    }
+    
+    match /reactions/{date}/voters/{userId} {
+      allow read, write: if true; // Track votes per device/user
+    }
+
+    // Notices & Deadlines
+    match /notices/{docId} {
+      allow read: if true;
+      allow write: if isAuthenticated();
+    }
+
+    // Contacts
+    match /contacts/{contactId} {
+      allow read: if true;
+      allow write: if isProvost();
+    }
+
+    // Complaints
+    match /complaints/{complaintId} {
+      allow read: if isAuthenticated() || isProvost();
+      allow write: if isAuthenticated();
+    }
+
+    // Broadcasts
+    match /broadcasts/{broadcastId} {
+      allow read: if true;
+      allow write: if isProvost();
+    }
+
+    // Payments
+    match /payments/{managerId} {
+      allow read: if isProvost() || isManager(managerId);
+      allow write: if isManager(managerId);
+    }
+
+    // Audit logs
+    match /audit_log/{logId} {
+      allow read: if isProvost();
+      allow create: if isAuthenticated();
+    }
+  }
+}

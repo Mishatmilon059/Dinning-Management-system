@@ -85,6 +85,9 @@ export const ManagerPortal: React.FC<ManagerPortalProps> = ({ currentUser, addTo
   // Emoji statistics state
   const [reactions, setReactions] = useState<Record<string, number>>({ like: 0, love: 0, angry: 0 });
 
+  const [paymentsPage, setPaymentsPage] = useState(1);
+  const [complaintsPage, setComplaintsPage] = useState(1);
+
   // Load Initial Data
   useEffect(() => {
     const loadManagerData = async () => {
@@ -138,10 +141,8 @@ export const ManagerPortal: React.FC<ManagerPortalProps> = ({ currentUser, addTo
       setPenaltyText(fetchedNotice.penaltyText || "");
 
       // Payments list
-      const savedPayments = localStorage.getItem(`hmms_payments_${managerId}`);
-      if (savedPayments) {
-        setPaidStudentIds(JSON.parse(savedPayments));
-      }
+      const savedPayments = await dbService.getPayments(managerId);
+      setPaidStudentIds(savedPayments);
 
       // Complaints list
       const fetchComplaints = await dbService.getComplaints();
@@ -155,13 +156,27 @@ export const ManagerPortal: React.FC<ManagerPortalProps> = ({ currentUser, addTo
     loadManagerData();
   }, [managerId, ledgerDate]);
 
-  // Date Locking check (older than 24h)
+  // Load menu for selected menuDate (FUNC-09)
+  useEffect(() => {
+    const loadMenu = async () => {
+      try {
+        const menuData = await dbService.getMenu(menuDate);
+        if (menuData) {
+          setMenuForm(menuData);
+        } else {
+          setMenuForm({ breakfast: "", lunch: "", dinner: "", estimatedCost: 150 });
+        }
+      } catch (err) {
+        console.error("Failed to load menu for date", menuDate, err);
+      }
+    };
+    loadMenu();
+  }, [menuDate]);
+
+  // Date Locking check (older than 24h) (FUNC-01)
   function isDateLocked(targetDateStr: string): boolean {
-    const targetDate = new Date(targetDateStr);
-    const now = new Date();
-    const diffTime = Math.abs(now.getTime() - targetDate.getTime());
-    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-    return diffDays > 1; // Lock if date is yesterday or older
+    const today = new Date().toISOString().split("T")[0];
+    return targetDateStr < today;
   }
 
   // Generate Inventory Insights (Simulating Gemini API server-side analysis)
@@ -187,10 +202,11 @@ export const ManagerPortal: React.FC<ManagerPortalProps> = ({ currentUser, addTo
     }
 
     try {
+      const currentMonth = new Date().toLocaleString("en-US", { month: "long", year: "numeric" });
       const profileData: ManagerProfile = {
         id: managerId,
         ...setupForm,
-        month: "May 2026",
+        month: currentMonth,
       };
       await dbService.updateManagerProfile(managerId, profileData);
       setNeedsSetup(false);
@@ -200,6 +216,22 @@ export const ManagerPortal: React.FC<ManagerPortalProps> = ({ currentUser, addTo
       if (session) {
         session.needsSetup = false;
         localStorage.setItem("hmms_session", JSON.stringify(session));
+        // Sync active sessions if in mock mode
+        if (session.token) {
+          try {
+            const activeKey = "hmms_mock_auth_active_sessions";
+            const activeStr = localStorage.getItem(activeKey);
+            if (activeStr) {
+              const active = JSON.parse(activeStr);
+              if (active[session.token]) {
+                active[session.token].needsSetup = false;
+                localStorage.setItem(activeKey, JSON.stringify(active));
+              }
+            }
+          } catch (e) {
+            console.error("Failed to sync active session", e);
+          }
+        }
       }
 
       addToast("Profile setup completed successfully!", "success");
@@ -315,6 +347,10 @@ export const ManagerPortal: React.FC<ManagerPortalProps> = ({ currentUser, addTo
   // File Uploader - Student Payments CSV Parser
   const fileInputRef = useRef<HTMLInputElement>(null);
   
+  const sanitizeStudentName = (name: string): string => {
+    return name.replace(/<\/?[^>]+(>|$)/g, "").trim().substring(0, 100);
+  };
+
   const handleCsvUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -329,44 +365,65 @@ export const ManagerPortal: React.FC<ManagerPortalProps> = ({ currentUser, addTo
         const parts = line.split(",");
         if (parts.length >= 2) {
           const id = parts[0].trim();
-          const name = parts[1].trim();
+          const name = sanitizeStudentName(parts[1]);
           if (/^\d{7}$/.test(id)) {
-            parsed.push({
-              id,
-              name,
-              date: new Date().toISOString().split("T")[0]
-            });
+            if (!parsed.some(p => p.id === id)) {
+              parsed.push({
+                id,
+                name,
+                date: new Date().toISOString().split("T")[0]
+              });
+            }
           }
         }
       });
 
       if (parsed.length > 0) {
-        const newList = [...paidStudentIds, ...parsed];
-        setPaidStudentIds(newList);
-        localStorage.setItem(`hmms_payments_${managerId}`, JSON.stringify(newList));
-        addToast(`Successfully imported ${parsed.length} student records from CSV!`, "success");
+        setPaidStudentIds(prev => {
+          const filtered = parsed.filter(item => !prev.some(p => p.id === item.id));
+          const newList = [...prev, ...filtered];
+          dbService.savePayments(managerId, newList).catch(() => {
+            addToast("Failed to save payments to database.", "error");
+          });
+          addToast(`Successfully imported ${filtered.length} new student records from CSV!`, "success");
+          return newList;
+        });
       } else {
-        addToast("Invalid CSV format. Ensure first column has 7-digit Student IDs.", "error");
+        addToast("No new or valid student records found in CSV.", "error");
       }
     };
     reader.readAsText(file);
   };
 
   // Manual payment list adder
-  const handleAddManualPayment = (e: React.FormEvent) => {
+  const handleAddManualPayment = async (e: React.FormEvent) => {
     e.preventDefault();
     const id = manualStudentId.trim();
-    const name = manualStudentName.trim() || "Student";
+    const name = sanitizeStudentName(manualStudentName || "Student");
     
     if (!/^\d{7}$/.test(id)) {
       addToast("Student ID must be exactly 7 digits.", "error");
       return;
     }
 
-    const newItem = { id, name, date: new Date().toISOString().split("T")[0] };
-    const newList = [...paidStudentIds, newItem];
-    setPaidStudentIds(newList);
-    localStorage.setItem(`hmms_payments_${managerId}`, JSON.stringify(newList));
+    let duplicate = false;
+    setPaidStudentIds(prev => {
+      if (prev.some(p => p.id === id)) {
+        duplicate = true;
+        return prev;
+      }
+      const newItem = { id, name, date: new Date().toISOString().split("T")[0] };
+      const newList = [...prev, newItem];
+      dbService.savePayments(managerId, newList).catch(() => {
+        addToast("Failed to save payment to database.", "error");
+      });
+      return newList;
+    });
+
+    if (duplicate) {
+      addToast(`Student ID ${id} is already in the payments checklist.`, "error");
+      return;
+    }
     
     setManualStudentId("");
     setManualStudentName("");
@@ -374,11 +431,15 @@ export const ManagerPortal: React.FC<ManagerPortalProps> = ({ currentUser, addTo
   };
 
   // Clear all payments list
-  const handleClearPayments = () => {
+  const handleClearPayments = async () => {
     if (window.confirm("Are you sure you want to clear the entire payments checklist?")) {
-      setPaidStudentIds([]);
-      localStorage.removeItem(`hmms_payments_${managerId}`);
-      addToast("Checklist cleared.", "info");
+      try {
+        await dbService.savePayments(managerId, []);
+        setPaidStudentIds([]);
+        addToast("Checklist cleared.", "info");
+      } catch {
+        addToast("Failed to clear checklist.", "error");
+      }
     }
   };
 
@@ -411,13 +472,17 @@ export const ManagerPortal: React.FC<ManagerPortalProps> = ({ currentUser, addTo
   const handleEndorseComplaint = async (complaintId: string) => {
     const list = [...complaints];
     const item = list.find(c => c.id === complaintId);
-    if (item && !item.endorsingManagers.includes(managerId)) {
-      item.endorsingManagers.push(managerId);
-      
-      // If all active managers endorse (let's say 2+ managers for mock, or simply submit triggers)
-      await dbService.saveComplaint(item);
-      setComplaints(list);
-      addToast("Complaint endorsed successfully!", "success");
+    if (item) {
+      if (item.endorsingManagers[0] === managerId) {
+        addToast("You cannot endorse your own complaint.", "error");
+        return;
+      }
+      if (!item.endorsingManagers.includes(managerId)) {
+        item.endorsingManagers.push(managerId);
+        await dbService.saveComplaint(item);
+        setComplaints(list);
+        addToast("Complaint endorsed successfully!", "success");
+      }
     }
   };
 
@@ -474,19 +539,20 @@ export const ManagerPortal: React.FC<ManagerPortalProps> = ({ currentUser, addTo
       return;
     }
     
+    const currentMonth = new Date().toLocaleString("en-US", { month: "long", year: "numeric" });
     const profile: ManagerProfile = {
       id: managerId,
       name: setupForm.name || "Mess Manager",
       dept: setupForm.dept || "BUET",
       room: setupForm.room || "Dining",
-      month: "May 2026",
+      month: currentMonth,
       bio: setupForm.bio || "",
       photoUrl: setupForm.photoUrl || ""
     };
 
     generateLedgerPdf({
       manager: profile,
-      month: "May 2026",
+      month: currentMonth,
       cashCollected,
       expenses: [{ date: ledgerDate, items: dayExpenses, total: dayExpenses.reduce((s, i) => s + i.total, 0), isLocked }],
       startDate: ledgerDate,
@@ -831,6 +897,8 @@ export const ManagerPortal: React.FC<ManagerPortalProps> = ({ currentUser, addTo
                       onChange={(e) => setCashInput(e.target.value)}
                       placeholder="e.g. 150000"
                       className="w-full px-4 py-2.5 bg-muted/40 border border-border/60 rounded-xl text-sm focus:outline-none"
+                      min="0"
+                      step="0.01"
                       required
                     />
                   </div>
@@ -940,7 +1008,22 @@ export const ManagerPortal: React.FC<ManagerPortalProps> = ({ currentUser, addTo
           <div className="grid gap-8 lg:grid-cols-3">
             {/* Left side - Inventory items table */}
             <div className="lg:col-span-2 bg-card border border-border/50 rounded-3xl p-6 sm:p-8 shadow-sm">
-              <h3 className="text-lg font-bold text-foreground mb-4">Stock Ledger</h3>
+              <div className="flex justify-between items-center mb-4">
+                <h3 className="text-lg font-bold text-foreground">Stock Ledger</h3>
+                <button
+                  onClick={() => setEditingInvItem({
+                    id: "new_" + Math.random().toString(36).substring(2, 9),
+                    name: "",
+                    quantity: 0,
+                    unit: "kg",
+                    usageRate: 0,
+                    finishDate: new Date().toISOString().split("T")[0]
+                  })}
+                  className="bg-primary text-primary-foreground hover:bg-primary/95 px-3 py-1.5 rounded-xl text-xs font-bold transition-colors"
+                >
+                  Add New Item
+                </button>
+              </div>
               
               <div className="overflow-x-auto">
                 <table className="w-full text-left text-xs border-collapse">
@@ -1017,8 +1100,36 @@ export const ManagerPortal: React.FC<ManagerPortalProps> = ({ currentUser, addTo
               {/* Editing Item Panel */}
               {editingInvItem && (
                 <div className="bg-card border border-border/50 rounded-3xl p-6 shadow-sm">
-                  <h3 className="text-base font-bold text-foreground mb-4">Edit Stock: {editingInvItem.name}</h3>
+                  <h3 className="text-base font-bold text-foreground mb-4">
+                    {editingInvItem.id.startsWith("new_") ? "Add Inventory Item" : `Edit Stock: ${editingInvItem.name}`}
+                  </h3>
                   <form onSubmit={handleUpdateStock} className="space-y-3">
+                    {editingInvItem.id.startsWith("new_") && (
+                      <>
+                        <div>
+                          <label className="block text-[9px] font-bold uppercase text-muted-foreground mb-1">Item Name</label>
+                          <input
+                            type="text"
+                            value={editingInvItem.name}
+                            onChange={(e) => setEditingInvItem(prev => prev ? ({ ...prev, name: e.target.value }) : null)}
+                            placeholder="e.g. Potatoes"
+                            className="w-full px-3 py-2 bg-muted/40 border border-border/60 rounded-xl text-xs focus:outline-none"
+                            required
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-[9px] font-bold uppercase text-muted-foreground mb-1">Unit</label>
+                          <input
+                            type="text"
+                            value={editingInvItem.unit}
+                            onChange={(e) => setEditingInvItem(prev => prev ? ({ ...prev, unit: e.target.value }) : null)}
+                            placeholder="e.g. kg, pcs"
+                            className="w-full px-3 py-2 bg-muted/40 border border-border/60 rounded-xl text-xs focus:outline-none"
+                            required
+                          />
+                        </div>
+                      </>
+                    )}
                     <div>
                       <label className="block text-[9px] font-bold uppercase text-muted-foreground mb-1">Quantity Remaining</label>
                       <input
@@ -1044,7 +1155,7 @@ export const ManagerPortal: React.FC<ManagerPortalProps> = ({ currentUser, addTo
                         type="submit"
                         className="flex-1 py-2 bg-primary text-primary-foreground hover:bg-primary/95 rounded-xl text-xs font-bold transition-colors"
                       >
-                        Update Item
+                        {editingInvItem.id.startsWith("new_") ? "Create Item" : "Update Item"}
                       </button>
                       <button
                         type="button"
@@ -1086,7 +1197,7 @@ export const ManagerPortal: React.FC<ManagerPortalProps> = ({ currentUser, addTo
                     </tr>
                   </thead>
                   <tbody>
-                    {paidStudentIds.map((item, idx) => (
+                    {paidStudentIds.slice((paymentsPage - 1) * 10, paymentsPage * 10).map((item, idx) => (
                       <tr key={idx} className="border-b border-border/30 hover:bg-muted/10 transition-colors">
                         <td className="py-2.5 px-4 font-semibold text-foreground">{item.id}</td>
                         <td className="py-2.5 px-4">{item.name}</td>
@@ -1103,6 +1214,29 @@ export const ManagerPortal: React.FC<ManagerPortalProps> = ({ currentUser, addTo
                   </tbody>
                 </table>
               </div>
+              {paidStudentIds.length > 10 && (
+                <div className="flex justify-between items-center mt-4 text-xs px-2">
+                  <button
+                    type="button"
+                    disabled={paymentsPage === 1}
+                    onClick={() => setPaymentsPage(prev => Math.max(prev - 1, 1))}
+                    className="px-3 py-1.5 bg-muted border border-border/50 rounded-xl font-bold disabled:opacity-50 hover:bg-muted/80 transition-colors"
+                  >
+                    Previous
+                  </button>
+                  <span className="text-muted-foreground">
+                    Page {paymentsPage} of {Math.ceil(paidStudentIds.length / 10)}
+                  </span>
+                  <button
+                    type="button"
+                    disabled={paymentsPage * 10 >= paidStudentIds.length}
+                    onClick={() => setPaymentsPage(prev => prev + 1)}
+                    className="px-3 py-1.5 bg-muted border border-border/50 rounded-xl font-bold disabled:opacity-50 hover:bg-muted/80 transition-colors"
+                  >
+                    Next
+                  </button>
+                </div>
+              )}
             </div>
 
             {/* CSV upload & manual registry inputs */}
@@ -1310,7 +1444,7 @@ export const ManagerPortal: React.FC<ManagerPortalProps> = ({ currentUser, addTo
               <h3 className="text-lg font-bold text-foreground mb-4">Mess Manager Grievances</h3>
               
               <div className="space-y-5">
-                {complaints.map(complaint => {
+                {complaints.slice((complaintsPage - 1) * 5, complaintsPage * 5).map(complaint => {
                   const isEndorsed = complaint.endorsingManagers.includes(managerId);
                   const isAllEndorsed = complaint.endorsingManagers.length >= 2; // Simulating co-manager checks
                   
@@ -1368,6 +1502,29 @@ export const ManagerPortal: React.FC<ManagerPortalProps> = ({ currentUser, addTo
                 {complaints.length === 0 && (
                   <div className="text-center py-8 text-xs text-muted-foreground select-none">
                     No active manager complaints logged.
+                  </div>
+                )}
+                {complaints.length > 5 && (
+                  <div className="flex justify-between items-center mt-4 text-xs">
+                    <button
+                      type="button"
+                      disabled={complaintsPage === 1}
+                      onClick={() => setComplaintsPage(prev => Math.max(prev - 1, 1))}
+                      className="px-3 py-1.5 bg-muted border border-border/50 rounded-xl font-bold disabled:opacity-50 hover:bg-muted/80 transition-colors"
+                    >
+                      Previous
+                    </button>
+                    <span className="text-muted-foreground">
+                      Page {complaintsPage} of {Math.ceil(complaints.length / 5)}
+                    </span>
+                    <button
+                      type="button"
+                      disabled={complaintsPage * 5 >= complaints.length}
+                      onClick={() => setComplaintsPage(prev => prev + 1)}
+                      className="px-3 py-1.5 bg-muted border border-border/50 rounded-xl font-bold disabled:opacity-50 hover:bg-muted/80 transition-colors"
+                    >
+                      Next
+                    </button>
                   </div>
                 )}
               </div>

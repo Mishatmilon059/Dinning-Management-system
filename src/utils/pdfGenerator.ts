@@ -11,8 +11,14 @@ interface PdfReportData {
 }
 
 export function generateLedgerPdf(data: PdfReportData) {
-  const { manager, month, cashCollected, expenses, startDate, endDate } = data;
-  const doc = new jsPDF();
+  try {
+    const { manager, month, cashCollected, expenses, startDate, endDate } = data;
+    const doc = new jsPDF();
+    
+    // Check if autoTable plugin is registered (FUNC-06)
+    if (typeof (doc as any).autoTable !== "function") {
+      throw new Error("PDF AutoTable plugin is not initialized. Please ensure jspdf-autotable is loaded.");
+    }
   
   // Clean styling constants
   const primaryColor = [187, 28, 62]; // Crimson Velvet default primary
@@ -171,4 +177,8 @@ export function generateLedgerPdf(data: PdfReportData) {
   // Auto-Download trigger
   const fileName = `HMMS_Ledger_${month.replace(" ", "_")}_${startDate}_to_${endDate}.pdf`;
   doc.save(fileName);
+  } catch (error) {
+    console.error("PDF generation failed:", error);
+    throw new Error(error instanceof Error ? error.message : "Failed to generate PDF ledger.");
+  }
 }

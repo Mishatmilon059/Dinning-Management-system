@@ -1,8 +1,9 @@
 import { isFirebaseEnabled, db } from "../firebase/config";
 import { 
   collection, doc, getDoc, getDocs, setDoc, updateDoc, 
-  deleteDoc, query, orderBy 
+  deleteDoc, query, orderBy, limit, startAfter 
 } from "firebase/firestore";
+import { authService } from "./authService";
 
 // Interfaces
 export interface ManagerProfile {
@@ -87,6 +88,20 @@ export interface Broadcast {
   expiryDate?: string;
 }
 
+export interface AuditLogEntry {
+  id: string;
+  timestamp: number;
+  userId: string;
+  actionType: string;
+  details: string;
+}
+
+export interface PaginatedResult<T> {
+  items: T[];
+  lastDoc: any;
+  hasMore: boolean;
+}
+
 // Initial Mock Seed Data
 const INITIAL_MANAGERS: Record<string, ManagerProfile> = {
   "2012001": {
@@ -162,32 +177,110 @@ const getMockData = <T>(key: string, initial: T): T => {
 };
 
 const saveMockData = (key: string, data: unknown) => {
-  localStorage.setItem(`hmms_mock_${key}`, JSON.stringify(data));
+  try {
+    localStorage.setItem(`hmms_mock_${key}`, JSON.stringify(data));
+  } catch (e) {
+    if (e instanceof DOMException && (e.name === 'QuotaExceededError' || e.name === 'NS_ERROR_DOM_QUOTA_REACHED')) {
+      throw new Error("Local storage quota exceeded! Cannot save data locally. Please clear browser storage or configure Firebase database.");
+    }
+    throw e;
+  }
 };
 
 // Database Service Implementation
 class DbService {
-  // --- MANAGERS ---
-  async getManagers(): Promise<ManagerProfile[]> {
+  // Caching layer properties (SCALE-02)
+  private cache: Record<string, { data: any; timestamp: number }> = {};
+
+  private getCached<T>(key: string, ttl = 60000): T | null {
+    const cached = this.cache[key];
+    if (cached && Date.now() - cached.timestamp < ttl) {
+      return cached.data as T;
+    }
+    return null;
+  }
+
+  private setCache(key: string, data: any): void {
+    this.cache[key] = { data, timestamp: Date.now() };
+  }
+
+  private clearCache(keyPrefix: string): void {
+    Object.keys(this.cache).forEach(k => {
+      if (k.startsWith(keyPrefix)) {
+        delete this.cache[k];
+      }
+    });
+  }
+
+  // Log Actions for audit trail (FEAT-02)
+  async logAction(actionType: string, details: any): Promise<void> {
+    const activeUser = authService.getCurrentUser();
+    const resolvedUserId = activeUser?.id || "anonymous";
+    const entry: AuditLogEntry = {
+      id: Math.random().toString(36).substring(2, 9),
+      timestamp: Date.now(),
+      userId: resolvedUserId,
+      actionType,
+      details: typeof details === "string" ? details : JSON.stringify(details)
+    };
+
     if (isFirebaseEnabled && db) {
-      const q = collection(db, "managers");
-      const snap = await getDocs(q);
-      return snap.docs.map(d => d.data() as ManagerProfile);
+      const docRef = doc(db, "audit_log", entry.id);
+      await setDoc(docRef, entry);
     } else {
-      const managers = getMockData("managers", INITIAL_MANAGERS);
-      return Object.values(managers);
+      const list = getMockData<AuditLogEntry[]>("audit_logs", []);
+      list.unshift(entry);
+      saveMockData("audit_logs", list);
     }
   }
 
+  async getAuditLogs(): Promise<AuditLogEntry[]> {
+    if (isFirebaseEnabled && db) {
+      const q = query(collection(db, "audit_log"), orderBy("timestamp", "desc"));
+      const snap = await getDocs(q);
+      return snap.docs.map(d => d.data() as AuditLogEntry);
+    } else {
+      return getMockData<AuditLogEntry[]>("audit_logs", []);
+    }
+  }
+
+  // --- MANAGERS ---
+  async getManagers(): Promise<ManagerProfile[]> {
+    const cacheKey = "managers_list";
+    const cached = this.getCached<ManagerProfile[]>(cacheKey);
+    if (cached) return cached;
+
+    let result: ManagerProfile[];
+    if (isFirebaseEnabled && db) {
+      const q = collection(db, "managers");
+      const snap = await getDocs(q);
+      result = snap.docs.map(d => d.data() as ManagerProfile);
+    } else {
+      const managers = getMockData("managers", INITIAL_MANAGERS);
+      result = Object.values(managers);
+    }
+    this.setCache(cacheKey, result);
+    return result;
+  }
+
   async getManagerProfile(id: string): Promise<ManagerProfile | null> {
+    const cacheKey = `manager_profile_${id}`;
+    const cached = this.getCached<ManagerProfile>(cacheKey);
+    if (cached) return cached;
+
+    let result: ManagerProfile | null = null;
     if (isFirebaseEnabled && db) {
       const docRef = doc(db, "managers", id);
       const docSnap = await getDoc(docRef);
-      return docSnap.exists() ? (docSnap.data() as ManagerProfile) : null;
+      result = docSnap.exists() ? (docSnap.data() as ManagerProfile) : null;
     } else {
       const managers = getMockData("managers", INITIAL_MANAGERS);
-      return managers[id] || null;
+      result = managers[id] || null;
     }
+    if (result) {
+      this.setCache(cacheKey, result);
+    }
+    return result;
   }
 
   async updateManagerProfile(id: string, data: Partial<ManagerProfile>): Promise<void> {
@@ -200,6 +293,9 @@ class DbService {
       managers[id] = { ...existing, ...data };
       saveMockData("managers", managers);
     }
+    this.clearCache("managers_list");
+    this.clearCache(`manager_profile_${id}`);
+    await this.logAction("UPDATE_PROFILE", { id, ...data });
   }
 
   // --- CASH COLLECTION ---
@@ -223,6 +319,7 @@ class DbService {
       cash[managerId] = amount;
       saveMockData("cashCollection", cash);
     }
+    await this.logAction("SET_CASH", { managerId, amount });
   }
 
   // --- EXPENSES ---
@@ -247,9 +344,46 @@ class DbService {
     }
   }
 
+  // Cursor-based paginated past expenses (SCALE-01)
+  async getExpensesPaginated(managerId: string, pageSize = 20, lastDocCursor: any = null): Promise<PaginatedResult<DayExpenses>> {
+    if (isFirebaseEnabled && db) {
+      let q = query(
+        collection(db, "expenses", managerId, "days"),
+        orderBy("date", "desc"),
+        limit(pageSize)
+      );
+      if (lastDocCursor) {
+        q = query(q, startAfter(lastDocCursor));
+      }
+      const snap = await getDocs(q);
+      const items = snap.docs.map(d => d.data() as DayExpenses);
+      const lastDoc = snap.docs[snap.docs.length - 1] || null;
+      const hasMore = snap.docs.length === pageSize;
+      return { items, lastDoc, hasMore };
+    } else {
+      const key = `expenses_${managerId}`;
+      const expensesMap = getMockData<Record<string, DayExpenses>>(key, {});
+      const sorted = Object.values(expensesMap).sort((a, b) => b.date.localeCompare(a.date));
+      const startIndex = typeof lastDocCursor === "number" ? lastDocCursor : 0;
+      const paginated = sorted.slice(startIndex, startIndex + pageSize);
+      const hasMore = startIndex + pageSize < sorted.length;
+      return {
+        items: paginated,
+        lastDoc: hasMore ? startIndex + pageSize : null,
+        hasMore
+      };
+    }
+  }
+
   async saveDayExpenses(managerId: string, date: string, items: ExpenseItem[], isLocked = false): Promise<void> {
-    const total = items.reduce((sum, item) => sum + item.total, 0);
-    const dayData: DayExpenses = { date, items, total, isLocked };
+    // Recompute totals inside the service layer (FUNC-02)
+    const sanitizedItems = items.map(item => ({
+      ...item,
+      total: Math.round(item.quantity * item.unitPrice * 100) / 100
+    }));
+    
+    const total = sanitizedItems.reduce((sum, item) => sum + item.total, 0);
+    const dayData: DayExpenses = { date, items: sanitizedItems, total, isLocked };
 
     if (isFirebaseEnabled && db) {
       const docRef = doc(db, "expenses", managerId, "days", date);
@@ -260,20 +394,30 @@ class DbService {
       expenses[date] = dayData;
       saveMockData(key, expenses);
     }
+    await this.logAction("SAVE_EXPENSES", { date, total, isLocked });
   }
 
   // --- MENU ---
   async getMenu(date: string): Promise<MenuItem | null> {
+    const cacheKey = `menu_${date}`;
+    const cached = this.getCached<MenuItem>(cacheKey);
+    if (cached) return cached;
+
+    let result: MenuItem | null = null;
     if (isFirebaseEnabled && db) {
       const docRef = doc(db, "menus", date);
       const snap = await getDoc(docRef);
-      return snap.exists() ? (snap.data() as MenuItem) : null;
+      result = snap.exists() ? (snap.data() as MenuItem) : null;
     } else {
       const menus = getMockData<Record<string, MenuItem>>("menus", {
         "2026-05-26": { breakfast: "Khichuri, Egg, Achar", lunch: "Rice, Ruhi Fish Curry, Lentils, Salad", dinner: "Rice, Beef Bhuna, Potato Mash, Dal", estimatedCost: 150 }
       });
-      return menus[date] || null;
+      result = menus[date] || null;
     }
+    if (result) {
+      this.setCache(cacheKey, result);
+    }
+    return result;
   }
 
   async setMenu(date: string, menu: MenuItem): Promise<void> {
@@ -285,18 +429,27 @@ class DbService {
       menus[date] = menu;
       saveMockData("menus", menus);
     }
+    this.clearCache(`menu_${date}`);
+    await this.logAction("SET_MENU", { date, menu });
   }
 
   // --- INVENTORY ---
   async getInventory(managerId: string): Promise<InventoryItem[]> {
+    const cacheKey = `inventory_${managerId}`;
+    const cached = this.getCached<InventoryItem[]>(cacheKey);
+    if (cached) return cached;
+
+    let result: InventoryItem[];
     if (isFirebaseEnabled && db) {
       const q = collection(db, "inventory", managerId, "items");
       const snap = await getDocs(q);
-      return snap.docs.map(d => d.data() as InventoryItem);
+      result = snap.docs.map(d => d.data() as InventoryItem);
     } else {
       const key = `inventory_${managerId}`;
-      return getMockData<InventoryItem[]>(key, INITIAL_INVENTORY);
+      result = getMockData<InventoryItem[]>(key, INITIAL_INVENTORY);
     }
+    this.setCache(cacheKey, result);
+    return result;
   }
 
   async updateInventoryItem(managerId: string, item: InventoryItem): Promise<void> {
@@ -314,6 +467,8 @@ class DbService {
       }
       saveMockData(key, inv);
     }
+    this.clearCache(`inventory_${managerId}`);
+    await this.logAction("UPDATE_INVENTORY", item);
   }
 
   // --- FEEDBACK COMMENTS ---
@@ -328,6 +483,36 @@ class DbService {
         { id: "1", text: "The beef bhuna was outstanding tonight!", name: "Anik", timestamp: Date.now() - 3600000, highlighted: true },
         { id: "2", text: "Fish was a bit cold, please serve it hot next time.", timestamp: Date.now() - 7200000, highlighted: false }
       ]);
+    }
+  }
+
+  // Paginated feedback comments (SCALE-01)
+  async getFeedbackPaginated(date: string, pageSize = 20, lastDocCursor: any = null): Promise<PaginatedResult<Comment>> {
+    if (isFirebaseEnabled && db) {
+      let q = query(
+        collection(db, "feedback", date, "comments"),
+        orderBy("timestamp", "desc"),
+        limit(pageSize)
+      );
+      if (lastDocCursor) {
+        q = query(q, startAfter(lastDocCursor));
+      }
+      const snap = await getDocs(q);
+      const items = snap.docs.map(d => d.data() as Comment);
+      const lastDoc = snap.docs[snap.docs.length - 1] || null;
+      const hasMore = snap.docs.length === pageSize;
+      return { items, lastDoc, hasMore };
+    } else {
+      const key = `feedback_${date}`;
+      const allComments = getMockData<Comment[]>(key, []);
+      const startIndex = typeof lastDocCursor === "number" ? lastDocCursor : 0;
+      const paginated = allComments.slice(startIndex, startIndex + pageSize);
+      const hasMore = startIndex + pageSize < allComments.length;
+      return {
+        items: paginated,
+        lastDoc: hasMore ? startIndex + pageSize : null,
+        hasMore
+      };
     }
   }
 
@@ -365,6 +550,7 @@ class DbService {
         saveMockData(key, list);
       }
     }
+    await this.logAction("MODERATE_FEEDBACK", { commentId, highlighted });
   }
 
   // --- REACTIONS ---
@@ -379,33 +565,66 @@ class DbService {
     }
   }
 
-  async addReaction(date: string, type: "like" | "love" | "angry"): Promise<void> {
+  async hasVoted(date: string, userId: string): Promise<boolean> {
     if (isFirebaseEnabled && db) {
+      const docRef = doc(db, "reactions", date, "voters", userId);
+      const snap = await getDoc(docRef);
+      return snap.exists();
+    } else {
+      const key = `voted_${date}_${userId}`;
+      return localStorage.getItem(key) === "true";
+    }
+  }
+
+  async addReaction(date: string, type: "like" | "love" | "angry", userId: string): Promise<void> {
+    if (isFirebaseEnabled && db) {
+      const voterDocRef = doc(db, "reactions", date, "voters", userId);
+      const voterSnap = await getDoc(voterDocRef);
+      if (voterSnap.exists()) {
+        throw new Error("You have already voted today!");
+      }
+      
       const docRef = doc(db, "reactions", date);
       const snap = await getDoc(docRef);
       const data = snap.exists() ? snap.data() : { like: 0, love: 0, angry: 0 };
       data[type] = (data[type] || 0) + 1;
+      
       await setDoc(docRef, data);
+      await setDoc(voterDocRef, { type, timestamp: Date.now() });
     } else {
-      const key = `reactions_${date}`;
-      const data = getMockData<Record<string, number>>(key, { like: 0, love: 0, angry: 0 });
+      const key = `voted_${date}_${userId}`;
+      if (localStorage.getItem(key) === "true") {
+        throw new Error("You have already voted today!");
+      }
+      
+      const rKey = `reactions_${date}`;
+      const data = getMockData<Record<string, number>>(rKey, { like: 0, love: 0, angry: 0 });
       data[type] = (data[type] || 0) + 1;
-      saveMockData(key, data);
+      saveMockData(rKey, data);
+      
+      localStorage.setItem(key, "true");
     }
   }
 
   // --- NOTICES & DEADLINES ---
   async getNotice(): Promise<Notice> {
+    const cacheKey = "active_notice";
+    const cached = this.getCached<Notice>(cacheKey);
+    if (cached) return cached;
+
+    let result: Notice;
     if (isFirebaseEnabled && db) {
       const docRef = doc(db, "notices", "active");
       const snap = await getDoc(docRef);
-      return snap.exists() ? (snap.data() as Notice) : { paymentDeadline: "", penaltyText: "" };
+      result = snap.exists() ? (snap.data() as Notice) : { paymentDeadline: "", penaltyText: "" };
     } else {
-      return getMockData<Notice>("active_notice", {
+      result = getMockData<Notice>("active_notice", {
         paymentDeadline: "2026-05-28T23:59:59",
         penaltyText: "A penalty fee of 200 BDT applies for payments made after the deadline."
       });
     }
+    this.setCache(cacheKey, result);
+    return result;
   }
 
   async setNotice(notice: Notice): Promise<void> {
@@ -415,17 +634,26 @@ class DbService {
     } else {
       saveMockData("active_notice", notice);
     }
+    this.clearCache("active_notice");
+    await this.logAction("SET_NOTICE", notice);
   }
 
   // --- CONTACTS ---
   async getContacts(): Promise<Contact[]> {
+    const cacheKey = "contacts_list";
+    const cached = this.getCached<Contact[]>(cacheKey);
+    if (cached) return cached;
+
+    let result: Contact[];
     if (isFirebaseEnabled && db) {
       const q = collection(db, "contacts");
       const snap = await getDocs(q);
-      return snap.docs.map(d => d.data() as Contact);
+      result = snap.docs.map(d => d.data() as Contact);
     } else {
-      return getMockData<Contact[]>("contacts", INITIAL_CONTACTS);
+      result = getMockData<Contact[]>("contacts", INITIAL_CONTACTS);
     }
+    this.setCache(cacheKey, result);
+    return result;
   }
 
   async saveContact(contact: Contact): Promise<void> {
@@ -442,6 +670,8 @@ class DbService {
       }
       saveMockData("contacts", list);
     }
+    this.clearCache("contacts_list");
+    await this.logAction("SAVE_CONTACT", contact);
   }
 
   async deleteContact(id: string): Promise<void> {
@@ -453,6 +683,8 @@ class DbService {
       list = list.filter(c => c.id !== id);
       saveMockData("contacts", list);
     }
+    this.clearCache("contacts_list");
+    await this.logAction("DELETE_CONTACT", { id });
   }
 
   // --- COMPLAINTS ---
@@ -465,6 +697,35 @@ class DbService {
       return getMockData<Complaint[]>("complaints", [
         { id: "1", category: "Water Supply", date: "2026-05-22", severity: "high", description: "Water filter in the dining hall is malfunctioning, forcing students to buy drinking water.", endorsingManagers: ["2012001"], status: "draft" }
       ]);
+    }
+  }
+
+  async getComplaintsPaginated(pageSize = 20, lastDocCursor: any = null): Promise<PaginatedResult<Complaint>> {
+    if (isFirebaseEnabled && db) {
+      let q = query(
+        collection(db, "complaints"),
+        orderBy("date", "desc"),
+        limit(pageSize)
+      );
+      if (lastDocCursor) {
+        q = query(q, startAfter(lastDocCursor));
+      }
+      const snap = await getDocs(q);
+      const items = snap.docs.map(d => d.data() as Complaint);
+      const lastDoc = snap.docs[snap.docs.length - 1] || null;
+      const hasMore = snap.docs.length === pageSize;
+      return { items, lastDoc, hasMore };
+    } else {
+      const allComplaints = getMockData<Complaint[]>("complaints", []);
+      const sorted = [...allComplaints].sort((a, b) => b.date.localeCompare(a.date));
+      const startIndex = typeof lastDocCursor === "number" ? lastDocCursor : 0;
+      const paginated = sorted.slice(startIndex, startIndex + pageSize);
+      const hasMore = startIndex + pageSize < sorted.length;
+      return {
+        items: paginated,
+        lastDoc: hasMore ? startIndex + pageSize : null,
+        hasMore
+      };
     }
   }
 
@@ -482,6 +743,7 @@ class DbService {
       }
       saveMockData("complaints", list);
     }
+    await this.logAction("SAVE_COMPLAINT", complaint);
   }
 
   // --- BROADCASTS ---
@@ -495,6 +757,34 @@ class DbService {
     }
   }
 
+  async getBroadcastsPaginated(pageSize = 20, lastDocCursor: any = null): Promise<PaginatedResult<Broadcast>> {
+    if (isFirebaseEnabled && db) {
+      let q = query(
+        collection(db, "broadcasts"),
+        orderBy("publishDate", "desc"),
+        limit(pageSize)
+      );
+      if (lastDocCursor) {
+        q = query(q, startAfter(lastDocCursor));
+      }
+      const snap = await getDocs(q);
+      const items = snap.docs.map(d => d.data() as Broadcast);
+      const lastDoc = snap.docs[snap.docs.length - 1] || null;
+      const hasMore = snap.docs.length === pageSize;
+      return { items, lastDoc, hasMore };
+    } else {
+      const allBroadcasts = getMockData<Broadcast[]>("broadcasts", INITIAL_BROADCASTS);
+      const startIndex = typeof lastDocCursor === "number" ? lastDocCursor : 0;
+      const paginated = allBroadcasts.slice(startIndex, startIndex + pageSize);
+      const hasMore = startIndex + pageSize < allBroadcasts.length;
+      return {
+        items: paginated,
+        lastDoc: hasMore ? startIndex + pageSize : null,
+        hasMore
+      };
+    }
+  }
+
   async addBroadcast(broadcast: Broadcast): Promise<void> {
     if (isFirebaseEnabled && db) {
       const docRef = doc(db, "broadcasts", broadcast.id);
@@ -504,6 +794,40 @@ class DbService {
       list.unshift(broadcast);
       saveMockData("broadcasts", list);
     }
+    await this.logAction("ADD_BROADCAST", broadcast);
+  }
+
+  async deleteBroadcast(id: string): Promise<void> {
+    if (isFirebaseEnabled && db) {
+      const docRef = doc(db, "broadcasts", id);
+      await deleteDoc(docRef);
+    } else {
+      let list = getMockData<Broadcast[]>("broadcasts", INITIAL_BROADCASTS);
+      list = list.filter(b => b.id !== id);
+      saveMockData("broadcasts", list);
+    }
+    await this.logAction("DELETE_BROADCAST", { id });
+  }
+
+  // --- PAYMENTS (DATA-03) ---
+  async getPayments(managerId: string): Promise<{ id: string; name: string; date: string }[]> {
+    if (isFirebaseEnabled && db) {
+      const docRef = doc(db, "payments", managerId);
+      const snap = await getDoc(docRef);
+      return snap.exists() ? (snap.data().paidStudentIds as { id: string; name: string; date: string }[]) : [];
+    } else {
+      return getMockData<{ id: string; name: string; date: string }[]>(`payments_${managerId}`, []);
+    }
+  }
+
+  async savePayments(managerId: string, paidStudentIds: { id: string; name: string; date: string }[]): Promise<void> {
+    if (isFirebaseEnabled && db) {
+      const docRef = doc(db, "payments", managerId);
+      await setDoc(docRef, { paidStudentIds });
+    } else {
+      saveMockData(`payments_${managerId}`, paidStudentIds);
+    }
+    await this.logAction("SAVE_PAYMENTS", { managerId, count: paidStudentIds.length });
   }
 }
 

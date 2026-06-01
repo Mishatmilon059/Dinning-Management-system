@@ -8,8 +8,21 @@ import { Login } from "./components/Login";
 import { Toast } from "./components/Toast";
 import type { ToastMessage } from "./components/Toast";
 import { authService } from "./services/authService";
-import type { SessionUser } from "./services/authService";
+import type { SessionUser, UserRole } from "./services/authService";
 import { applyTheme } from "./theme/themes";
+import { isFirebaseEnabled, auth } from "./firebase/config";
+import { dbService } from "./services/dbService";
+
+const ProtectedRoute: React.FC<{
+  allowedRole: UserRole;
+  currentUser: SessionUser | null;
+  children: React.ReactElement;
+}> = ({ allowedRole, currentUser, children }) => {
+  if (!currentUser || currentUser.role !== allowedRole) {
+    return <Navigate to="/login" replace />;
+  }
+  return children;
+};
 
 export const App: React.FC = () => {
   const [currentUser, setCurrentUser] = useState<SessionUser | null>(() => authService.getCurrentUser());
@@ -17,9 +30,45 @@ export const App: React.FC = () => {
   const [lang, setLang] = useState<"en" | "bn">("en");
   const [activeTab, setActiveTab] = useState<"home" | "gallery" | "menu" | "notices" | "contacts" | "managers">("home");
 
-  // Check active session on startup
+  // Check active session on startup and listen to live Firebase Auth state (AUTH-03, AUTH-05)
   useEffect(() => {
     applyTheme();
+
+    if (isFirebaseEnabled && auth) {
+      const unsubscribe = auth.onAuthStateChanged(async (fbUser) => {
+        if (fbUser) {
+          const email = fbUser.email || "";
+          let role: UserRole = "manager";
+          let id = "";
+          if (email === "provost@hall.buet.ac.bd") {
+            role = "provost";
+            id = "provost";
+          } else {
+            const match = email.match(/^(\d{7})@/);
+            if (match) {
+              id = match[1];
+              role = "manager";
+            }
+          }
+
+          if (id) {
+            let needsSetup = false;
+            if (role === "manager") {
+              const profile = await dbService.getManagerProfile(id);
+              needsSetup = !profile || !profile.name;
+            }
+            const verifiedUser: SessionUser = { id, role, email, needsSetup };
+            localStorage.setItem("hmms_session", JSON.stringify(verifiedUser));
+            setCurrentUser(verifiedUser);
+          } else {
+            setCurrentUser(null);
+          }
+        } else {
+          setCurrentUser(null);
+        }
+      });
+      return () => unsubscribe();
+    }
   }, []);
 
   // Floating notifications manager
@@ -37,8 +86,13 @@ export const App: React.FC = () => {
   };
 
   const handleLogout = () => {
-    setCurrentUser(null);
-    addToast("Logged out successfully.", "info");
+    authService.logout().then(() => {
+      setCurrentUser(null);
+      addToast("Logged out successfully.", "info");
+    }).catch(() => {
+      setCurrentUser(null);
+      addToast("Logged out successfully.", "info");
+    });
   };
 
   const refreshProfileState = () => {
@@ -91,15 +145,13 @@ export const App: React.FC = () => {
             <Route 
               path="/manager" 
               element={
-                currentUser && currentUser.role === "manager" ? (
+                <ProtectedRoute allowedRole="manager" currentUser={currentUser}>
                   <ManagerPortal 
                     currentUser={currentUser} 
                     addToast={addToast} 
                     onProfileUpdated={refreshProfileState} 
                   />
-                ) : (
-                  <Navigate to="/login" replace />
-                )
+                </ProtectedRoute>
               } 
             />
             
@@ -107,11 +159,9 @@ export const App: React.FC = () => {
             <Route 
               path="/provost" 
               element={
-                currentUser && currentUser.role === "provost" ? (
+                <ProtectedRoute allowedRole="provost" currentUser={currentUser}>
                   <ProvostPortal addToast={addToast} />
-                ) : (
-                  <Navigate to="/login" replace />
-                )
+                </ProtectedRoute>
               } 
             />
 

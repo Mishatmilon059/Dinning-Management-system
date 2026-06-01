@@ -1,5 +1,5 @@
 import { initializeApp, getApps } from "firebase/app";
-import { getFirestore } from "firebase/firestore";
+import { getFirestore, enableIndexedDbPersistence } from "firebase/firestore";
 import { getAuth } from "firebase/auth";
 import { getStorage } from "firebase/storage";
 
@@ -29,12 +29,23 @@ if (isFirebaseEnabled) {
     db = getFirestore(app);
     auth = getAuth(app);
     storage = getStorage(app);
-    console.log("Firebase initialized successfully in live mode.");
+    
+    // Enable offline persistence (SCALE-02)
+    if (typeof window !== "undefined") {
+      enableIndexedDbPersistence(db).catch((err) => {
+        if (err.code === 'failed-precondition') {
+          console.warn("Firestore persistence failed-precondition: Multiple tabs open.");
+        } else if (err.code === 'unimplemented') {
+          console.warn("Firestore persistence unimplemented: Browser doesn't support it.");
+        }
+      });
+    }
+    console.log("Firebase initialized successfully in live mode with offline persistence.");
   } catch (error) {
     console.error("Failed to initialize Firebase live client:", error);
   }
 } else {
-  console.log("Firebase keys missing. Running in local mock mode.");
+  console.warn("⚠️ HMMS WARNING (FEAT-04): Firebase keys missing. Running in local MOCK mode. This is insecure and NOT suitable for production deployment!");
 }
 
 export { db, auth, storage };

@@ -8,9 +8,16 @@ export interface SessionUser {
   role: UserRole;
   email?: string;
   needsSetup?: boolean;
+  token?: string;
 }
 
 const INITIAL_ALLOWED_MANAGERS = ["2012001", "2012002"];
+
+// Default passwords for initial managers: manager1 and manager2
+const INITIAL_PASSWORDS = {
+  "2012001": "fc5c8b25121b6727289f07a04870f701c905ed95a31b674d8258e727ad8b8559", // SHA-256 of "manager1"
+  "2012002": "bc2d449339e8020583492723c34a2e519e99c855a8057de278e5860cc415cb2c"  // SHA-256 of "manager2"
+};
 
 const getMockAuthData = <T>(key: string, initial: T): T => {
   const data = localStorage.getItem(`hmms_mock_auth_${key}`);
@@ -22,16 +29,70 @@ const getMockAuthData = <T>(key: string, initial: T): T => {
 };
 
 const saveMockAuthData = (key: string, data: unknown) => {
-  localStorage.setItem(`hmms_mock_auth_${key}`, JSON.stringify(data));
+  try {
+    localStorage.setItem(`hmms_mock_auth_${key}`, JSON.stringify(data));
+  } catch (e) {
+    if (e instanceof DOMException && (e.name === 'QuotaExceededError' || e.name === 'NS_ERROR_DOM_QUOTA_REACHED')) {
+      throw new Error("Local storage quota exceeded for authentication data!");
+    }
+    throw e;
+  }
 };
 
+// SHA-256 password hashing helper for mock mode (AUTH-02)
+async function hashPassword(password: string): Promise<string> {
+  const encoder = new TextEncoder();
+  const data = encoder.encode(password);
+  const hash = await crypto.subtle.digest("SHA-256", data);
+  return Array.from(new Uint8Array(hash))
+    .map(b => b.toString(16).padStart(2, "0"))
+    .join("");
+}
+
 class AuthService {
+  // Rate limiting check (AUTH-04)
+  private checkRateLimit(userId: string): void {
+    const attemptsKey = `hmms_login_attempts_${userId}`;
+    const lockoutKey = `hmms_login_lockout_${userId}`;
+    
+    const lockoutTimeStr = sessionStorage.getItem(lockoutKey);
+    if (lockoutTimeStr) {
+      const lockoutTime = parseInt(lockoutTimeStr, 10);
+      if (Date.now() < lockoutTime) {
+        const remainingMinutes = Math.ceil((lockoutTime - Date.now()) / 60000);
+        throw new Error(`Too many failed login attempts. Account locked. Try again in ${remainingMinutes} minute(s).`);
+      } else {
+        sessionStorage.removeItem(lockoutKey);
+        sessionStorage.removeItem(attemptsKey);
+      }
+    }
+  }
+
+  private incrementFailedAttempts(userId: string): void {
+    const attemptsKey = `hmms_login_attempts_${userId}`;
+    const lockoutKey = `hmms_login_lockout_${userId}`;
+    
+    const attempts = parseInt(sessionStorage.getItem(attemptsKey) || "0", 10) + 1;
+    sessionStorage.setItem(attemptsKey, attempts.toString());
+    
+    if (attempts >= 5) {
+      const lockoutTime = Date.now() + 15 * 60 * 1000; // 15 minutes
+      sessionStorage.setItem(lockoutKey, lockoutTime.toString());
+      throw new Error("Too many failed login attempts. Account locked for 15 minutes.");
+    }
+  }
+
+  private resetFailedAttempts(userId: string): void {
+    sessionStorage.removeItem(`hmms_login_attempts_${userId}`);
+    sessionStorage.removeItem(`hmms_login_lockout_${userId}`);
+  }
+
   async login(userId: string, password: string): Promise<SessionUser> {
     const sanitizedId = userId.trim();
+    this.checkRateLimit(sanitizedId);
 
     if (isFirebaseEnabled && auth) {
       try {
-        // Simple mapping: Provost or Student ID email
         let email = "";
         let role: UserRole = "manager";
         
@@ -45,10 +106,8 @@ class AuthService {
 
         const userCredential = await signInWithEmailAndPassword(auth, email, password);
         
-        // Check if profile setup is required
         let needsSetup = false;
         if (role === "manager") {
-          // Check if profile exists in db
           const profile = await import("./dbService").then(m => m.dbService.getManagerProfile(sanitizedId));
           needsSetup = !profile || !profile.name;
         }
@@ -61,18 +120,28 @@ class AuthService {
         };
         
         localStorage.setItem("hmms_session", JSON.stringify(sessionUser));
+        this.resetFailedAttempts(sanitizedId);
         return sessionUser;
       } catch (error) {
+        this.incrementFailedAttempts(sanitizedId);
         throw new Error("Invalid student ID or password.", { cause: error });
       }
     } else {
-      // Mock Login Implementation
+      // Mock Login Implementation with password validation (AUTH-02)
       if (sanitizedId.toLowerCase() === "provost") {
         if (password === "provost") {
-          const user: SessionUser = { id: "provost", role: "provost" };
+          const sessionToken = Math.random().toString(36).substring(2) + Date.now().toString(36);
+          const user = { id: "provost", role: "provost" as UserRole, token: sessionToken };
           localStorage.setItem("hmms_session", JSON.stringify(user));
+          
+          const activeSessions = getMockAuthData<Record<string, SessionUser>>("active_sessions", {});
+          activeSessions[sessionToken] = { id: "provost", role: "provost" };
+          saveMockAuthData("active_sessions", activeSessions);
+
+          this.resetFailedAttempts(sanitizedId);
           return user;
         } else {
+          this.incrementFailedAttempts(sanitizedId);
           throw new Error("Invalid password for Provost.");
         }
       }
@@ -80,11 +149,21 @@ class AuthService {
       // Check if ID is in the allowed managers list
       const allowed = getMockAuthData<string[]>("allowed_managers", INITIAL_ALLOWED_MANAGERS);
       if (allowed.includes(sanitizedId)) {
-        // In mock mode, any password works for testing, or matching credentials
-        const user: SessionUser = { 
+        // Enforce password verification in mock mode (AUTH-02)
+        const passwords = getMockAuthData<Record<string, string>>("manager_passwords", INITIAL_PASSWORDS);
+        const hashedInput = await hashPassword(password);
+        
+        if (passwords[sanitizedId] !== hashedInput) {
+          this.incrementFailedAttempts(sanitizedId);
+          throw new Error("Invalid password for Manager.");
+        }
+
+        const sessionToken = Math.random().toString(36).substring(2) + Date.now().toString(36);
+        const user = { 
           id: sanitizedId, 
-          role: "manager",
-          needsSetup: true // will check profile state
+          role: "manager" as UserRole,
+          needsSetup: true,
+          token: sessionToken
         };
 
         // Check if profile is already configured
@@ -97,19 +176,82 @@ class AuthService {
         }
 
         localStorage.setItem("hmms_session", JSON.stringify(user));
+
+        const activeSessions = getMockAuthData<Record<string, SessionUser>>("active_sessions", {});
+        activeSessions[sessionToken] = { id: sanitizedId, role: "manager", needsSetup: user.needsSetup };
+        saveMockAuthData("active_sessions", activeSessions);
+
+        this.resetFailedAttempts(sanitizedId);
         return user;
       } else {
+        this.incrementFailedAttempts(sanitizedId);
         throw new Error("Access denied. Student ID is not registered as an active Mess Manager.");
       }
     }
   }
 
   getCurrentUser(): SessionUser | null {
-    const session = localStorage.getItem("hmms_session");
-    return session ? JSON.parse(session) : null;
+    if (isFirebaseEnabled && auth) {
+      const fbUser = auth.currentUser;
+      if (!fbUser) return null;
+      const email = fbUser.email || "";
+      let role: UserRole = "manager";
+      let id = "";
+      if (email === "provost@hall.buet.ac.bd") {
+        role = "provost";
+        id = "provost";
+      } else {
+        const match = email.match(/^(\d{7})@/);
+        if (match) {
+          id = match[1];
+          role = "manager";
+        }
+      }
+      if (!id) return null;
+      
+      const session = localStorage.getItem("hmms_session");
+      if (session) {
+        try {
+          const parsed = JSON.parse(session);
+          if (parsed.id === id && parsed.role === role) {
+            return parsed;
+          }
+        } catch {
+          // ignore parsing error
+        }
+      }
+      return { id, role, email };
+    } else {
+      // Mock mode session verification (AUTH-03)
+      const session = localStorage.getItem("hmms_session");
+      if (!session) return null;
+      try {
+        const parsed = JSON.parse(session) as SessionUser & { token?: string };
+        if (!parsed.token) return null;
+        const activeSessions = getMockAuthData<Record<string, SessionUser>>("active_sessions", {});
+        if (!activeSessions[parsed.token]) return null;
+        return parsed;
+      } catch {
+        return null;
+      }
+    }
   }
 
   async logout(): Promise<void> {
+    const session = localStorage.getItem("hmms_session");
+    if (session) {
+      try {
+        const parsed = JSON.parse(session) as SessionUser & { token?: string };
+        if (parsed.token) {
+          const activeSessions = getMockAuthData<Record<string, SessionUser>>("active_sessions", {});
+          delete activeSessions[parsed.token];
+          saveMockAuthData("active_sessions", activeSessions);
+        }
+      } catch {
+        // ignore
+      }
+    }
+    
     if (isFirebaseEnabled && auth) {
       await signOut(auth);
     }
@@ -119,8 +261,6 @@ class AuthService {
   // --- PROVOST ACTIONS: MANAGER PROFILES ---
   async getRegisteredManagers(): Promise<string[]> {
     if (isFirebaseEnabled) {
-      // In live Firebase, this can be fetched from a dedicated collection or custom claims
-      // For simplicity, we can fetch from an 'allowed_managers' document in Firestore
       return INITIAL_ALLOWED_MANAGERS;
     } else {
       return getMockAuthData<string[]>("allowed_managers", INITIAL_ALLOWED_MANAGERS);
@@ -133,23 +273,28 @@ class AuthService {
       throw new Error("Student ID must be exactly 7 digits.");
     }
 
-    // Generate random secure password
-    const chars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!@#$%";
-    let password = "";
-    for (let i = 0; i < 10; i++) {
-      password += chars.charAt(Math.floor(Math.random() * chars.length));
+    // Verify duplication (FUNC-11)
+    const registered = await this.getRegisteredManagers();
+    if (registered.includes(sanitizedId)) {
+      throw new Error("Manager is already registered.");
     }
 
+    // Generate random secure password using CSPRNG (AUTH-06)
+    const array = new Uint8Array(10);
+    window.crypto.getRandomValues(array);
+    const chars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!@#$%";
+    const password = Array.from(array).map(b => chars[b % chars.length]).join("");
+
     if (isFirebaseEnabled) {
-      // In live Firebase, we would call a Cloud Function to create the auth account 
-      // and trigger SMTP nodemailer. We return a mock password or success message.
       console.log(`Cloud Function Triggered: Create account for ${sanitizedId} and send email.`);
     } else {
       const allowed = getMockAuthData<string[]>("allowed_managers", INITIAL_ALLOWED_MANAGERS);
-      if (!allowed.includes(sanitizedId)) {
-        allowed.push(sanitizedId);
-        saveMockAuthData("allowed_managers", allowed);
-      }
+      allowed.push(sanitizedId);
+      saveMockAuthData("allowed_managers", allowed);
+      
+      const passwords = getMockAuthData<Record<string, string>>("manager_passwords", INITIAL_PASSWORDS);
+      passwords[sanitizedId] = await hashPassword(password);
+      saveMockAuthData("manager_passwords", passwords);
     }
 
     return password;
@@ -163,6 +308,10 @@ class AuthService {
       let allowed = getMockAuthData<string[]>("allowed_managers", INITIAL_ALLOWED_MANAGERS);
       allowed = allowed.filter(id => id !== sanitizedId);
       saveMockAuthData("allowed_managers", allowed);
+      
+      const passwords = getMockAuthData<Record<string, string>>("manager_passwords", INITIAL_PASSWORDS);
+      delete passwords[sanitizedId];
+      saveMockAuthData("manager_passwords", passwords);
     }
   }
 }
