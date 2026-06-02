@@ -2,7 +2,7 @@ import React, { useState, useEffect } from "react";
 import { 
   Plus, Trash2, Edit2, FileText, AlertTriangle, AlertCircle, 
   CheckCircle, BarChart3, ListOrdered, Calendar,
-  Activity, UserCheck, Flame, ChevronDown, ChevronUp
+  Activity, Flame, ChevronDown, ChevronUp
 } from "lucide-react";
 import { dbService } from "../../services/dbService";
 import type { ManagerProfile, ExpenseItem, DayExpenses, MenuItem, InventoryItem, Complaint } from "../../services/dbService";
@@ -65,12 +65,7 @@ export const ManagerPortal: React.FC<ManagerPortalProps> = ({ currentUser, addTo
   const [editingInvItem, setEditingInvItem] = useState<InventoryItem | null>(null);
   const [aiInventoryAlerts, setAiInventoryAlerts] = useState<string[]>([]);
 
-  // Payment states
   const [deadlineDate, setDeadlineDate] = useState("");
-  const [penaltyText, setPenaltyText] = useState("");
-  const [paidStudentIds, setPaidStudentIds] = useState<{ id: string; name: string; date: string }[]>([]);
-  const [manualStudentId, setManualStudentId] = useState("");
-  const [manualStudentName, setManualStudentName] = useState("");
   const [expandedExpenseDate, setExpandedExpenseDate] = useState<string | null>(null);
 
   // Complaint states
@@ -88,7 +83,6 @@ export const ManagerPortal: React.FC<ManagerPortalProps> = ({ currentUser, addTo
   // Emoji statistics state
   const [reactions, setReactions] = useState<Record<string, number>>({ like: 0, love: 0, angry: 0 });
 
-  const [paymentsPage, setPaymentsPage] = useState(1);
   const [complaintsPage, setComplaintsPage] = useState(1);
 
   // Load Initial Data
@@ -141,11 +135,6 @@ export const ManagerPortal: React.FC<ManagerPortalProps> = ({ currentUser, addTo
       // Notice details
       const fetchedNotice = await dbService.getNotice();
       setDeadlineDate(fetchedNotice.paymentDeadline.split("T")[0] || "");
-      setPenaltyText(fetchedNotice.penaltyText || "");
-
-      // Payments list
-      const savedPayments = await dbService.getPayments(managerId);
-      setPaidStudentIds(savedPayments);
 
       // Complaints list
       const fetchComplaints = await dbService.getComplaints();
@@ -388,7 +377,7 @@ export const ManagerPortal: React.FC<ManagerPortalProps> = ({ currentUser, addTo
     try {
       await dbService.setNotice({
         paymentDeadline: `${deadlineDate}T23:59:59`,
-        penaltyText
+        penaltyText: ""
       });
       addToast("Deadline notice updated successfully!", "success");
     } catch {
@@ -396,58 +385,7 @@ export const ManagerPortal: React.FC<ManagerPortalProps> = ({ currentUser, addTo
     }
   };
 
-  // Sanitizer
-  const sanitizeStudentName = (name: string): string => {
-    return name.replace(/<\/?[^>]+(>|$)/g, "").trim().substring(0, 100);
-  };
 
-  // Manual payment list adder
-  const handleAddManualPayment = async (e: React.FormEvent) => {
-    e.preventDefault();
-    const id = manualStudentId.trim();
-    const name = sanitizeStudentName(manualStudentName || "Student");
-    
-    if (!/^\d{7}$/.test(id)) {
-      addToast("Student ID must be exactly 7 digits.", "error");
-      return;
-    }
-
-    let duplicate = false;
-    setPaidStudentIds(prev => {
-      if (prev.some(p => p.id === id)) {
-        duplicate = true;
-        return prev;
-      }
-      const newItem = { id, name, date: new Date().toISOString().split("T")[0] };
-      const newList = [...prev, newItem];
-      dbService.savePayments(managerId, newList).catch(() => {
-        addToast("Failed to save payment to database.", "error");
-      });
-      return newList;
-    });
-
-    if (duplicate) {
-      addToast(`Student ID ${id} is already in the payments checklist.`, "error");
-      return;
-    }
-    
-    setManualStudentId("");
-    setManualStudentName("");
-    addToast(`Student ID ${id} registered as paid.`, "success");
-  };
-
-  // Clear all payments list
-  const handleClearPayments = async () => {
-    if (window.confirm("Are you sure you want to clear the entire payments checklist?")) {
-      try {
-        await dbService.savePayments(managerId, []);
-        setPaidStudentIds([]);
-        addToast("Checklist cleared.", "info");
-      } catch {
-        addToast("Failed to clear checklist.", "error");
-      }
-    }
-  };
 
   // Create Complaint
   const handleCreateComplaint = async (e: React.FormEvent) => {
@@ -789,7 +727,7 @@ export const ManagerPortal: React.FC<ManagerPortalProps> = ({ currentUser, addTo
             { id: "ledger", label: "Expense Ledger", icon: <ListOrdered size={14} /> },
             { id: "menu", label: "Menu Scheduler", icon: <Calendar size={14} /> },
             { id: "inventory", label: "Inventory Planner", icon: <Flame size={14} /> },
-            { id: "payments", label: "Payments Importer", icon: <UserCheck size={14} /> },
+            { id: "payments", label: "Everyday Expense Tracking", icon: <ListOrdered size={14} /> },
             { id: "analytics", label: "AI & Preference", icon: <BarChart3 size={14} /> },
             { id: "complaints", label: "Complaints Desk", icon: <Activity size={14} /> }
           ].map(tab => (
@@ -1296,186 +1234,83 @@ export const ManagerPortal: React.FC<ManagerPortalProps> = ({ currentUser, addTo
           </div>
         )}
 
-        {/* 4. PAYMENT CHECKLIST SUB-TAB */}
+        {/* 4. EVERYDAY EXPENSE TRACKING SUB-TAB */}
         {activeSubTab === "payments" && (
-          <div className="grid gap-8 lg:grid-cols-3">
-            {/* Paid checklist table */}
-            <div className="lg:col-span-2 bg-card border border-border/50 rounded-3xl p-6 sm:p-8 shadow-sm">
-              <div className="flex justify-between items-center mb-4">
-                <h3 className="text-lg font-bold text-foreground">Paid Student Registry</h3>
+          <div className="max-w-4xl mx-auto w-full">
+            {/* Daily Expense Tracker & Budgeting List */}
+            <div className="bg-card border border-border/50 rounded-3xl p-6 sm:p-8 shadow-sm">
+              <div className="flex justify-between items-start mb-6 gap-2">
+                <div>
+                  <h2 className="text-xl font-bold tracking-tight text-foreground">Everyday Expense Tracking</h2>
+                  <p className="text-xs text-muted-foreground mt-1">Review everyday logged expenses, budgeting details, and export reports.</p>
+                </div>
                 <button
-                  onClick={handleClearPayments}
-                  className="text-xs text-rose-500 hover:text-rose-700 font-bold"
+                  onClick={handleExportAllToExcel}
+                  className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 shadow-sm shrink-0"
                 >
-                  Clear Checklist
+                  📊 Export to Excel
                 </button>
               </div>
-
-              <div className="overflow-y-auto max-h-[400px] border border-border/40 rounded-2xl">
-                <table className="w-full text-left text-xs border-collapse">
-                  <thead>
-                    <tr className="border-b border-border/60 text-muted-foreground uppercase font-bold text-[9px] tracking-wider bg-muted/20 sticky top-0">
-                      <th className="py-2.5 px-4">Student ID</th>
-                      <th className="py-2.5 px-4">Student Name</th>
-                      <th className="py-2.5 px-4">Registration Date</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {paidStudentIds.slice((paymentsPage - 1) * 10, paymentsPage * 10).map((item, idx) => (
-                      <tr key={idx} className="border-b border-border/30 hover:bg-muted/10 transition-colors">
-                        <td className="py-2.5 px-4 font-semibold text-foreground">{item.id}</td>
-                        <td className="py-2.5 px-4">{item.name}</td>
-                        <td className="py-2.5 px-4 text-muted-foreground">{item.date}</td>
-                      </tr>
-                    ))}
-                    {paidStudentIds.length === 0 && (
-                      <tr>
-                        <td colSpan={3} className="text-center py-8 text-muted-foreground select-none">
-                          No student payments recorded for this month.
-                        </td>
-                      </tr>
-                    )}
-                  </tbody>
-                </table>
-              </div>
-              {paidStudentIds.length > 10 && (
-                <div className="flex justify-between items-center mt-4 text-xs px-2">
-                  <button
-                    type="button"
-                    disabled={paymentsPage === 1}
-                    onClick={() => setPaymentsPage(prev => Math.max(prev - 1, 1))}
-                    className="px-3 py-1.5 bg-muted border border-border/50 rounded-xl font-bold disabled:opacity-50 hover:bg-muted/80 transition-colors"
-                  >
-                    Previous
-                  </button>
-                  <span className="text-muted-foreground">
-                    Page {paymentsPage} of {Math.ceil(paidStudentIds.length / 10)}
-                  </span>
-                  <button
-                    type="button"
-                    disabled={paymentsPage * 10 >= paidStudentIds.length}
-                    onClick={() => setPaymentsPage(prev => prev + 1)}
-                    className="px-3 py-1.5 bg-muted border border-border/50 rounded-xl font-bold disabled:opacity-50 hover:bg-muted/80 transition-colors"
-                  >
-                    Next
-                  </button>
-                </div>
-              )}
-            </div>
-
-            {/* CSV upload & manual registry inputs */}
-            <div className="space-y-6">
-              {/* Daily Expense Tracker & Budgeting List */}
-              <div className="bg-card border border-border/50 rounded-3xl p-6 shadow-sm">
-                <div className="flex justify-between items-start mb-4 gap-2">
-                  <div className="flex-1">
-                    <h3 className="text-base font-bold text-foreground">Everyday Expense Tracking</h3>
-                    <p className="text-[10px] text-muted-foreground">View everyday logged expenses and daily budgeting details.</p>
-                  </div>
-                  <button
-                    onClick={handleExportAllToExcel}
-                    className="px-2.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-[10px] font-bold transition-all flex items-center gap-1 shadow-sm shrink-0"
-                  >
-                    📊 Export Excel
-                  </button>
-                </div>
-                
-                <div className="space-y-3 max-h-[300px] overflow-y-auto pr-1">
-                  {allPastExpenses.map((day) => {
-                    const isExpanded = expandedExpenseDate === day.date;
-                    return (
+              
+              <div className="space-y-4 pr-1">
+                {allPastExpenses.map((day) => {
+                  const isExpanded = expandedExpenseDate === day.date;
+                  return (
+                    <div 
+                      key={day.date} 
+                      className="border border-border/40 rounded-2xl bg-muted/20 overflow-hidden transition-all duration-200"
+                    >
+                      {/* Header */}
                       <div 
-                        key={day.date} 
-                        className="border border-border/40 rounded-2xl bg-muted/20 overflow-hidden transition-all duration-200"
+                        onClick={() => setExpandedExpenseDate(isExpanded ? null : day.date)}
+                        className="flex justify-between items-center p-4 cursor-pointer hover:bg-muted/40 transition-colors"
                       >
-                        {/* Header */}
-                        <div 
-                          onClick={() => setExpandedExpenseDate(isExpanded ? null : day.date)}
-                          className="flex justify-between items-center p-3 cursor-pointer hover:bg-muted/40 transition-colors"
-                        >
-                          <div>
-                            <span className="text-xs font-bold text-foreground block">{day.date}</span>
-                            <span className="text-[10px] text-muted-foreground">{day.items.length} items logged</span>
-                          </div>
-                          <div className="text-right flex items-center gap-2">
-                            <span className="text-xs font-bold text-primary">{day.total.toFixed(2)} BDT</span>
-                            {isExpanded ? <ChevronUp size={14} className="text-muted-foreground" /> : <ChevronDown size={14} className="text-muted-foreground" />}
-                          </div>
+                        <div>
+                          <span className="text-sm font-bold text-foreground block">{day.date}</span>
+                          <span className="text-xs text-muted-foreground">{day.items.length} items logged in ledger</span>
                         </div>
-
-                        {/* Details */}
-                        {isExpanded && (
-                          <div className="p-3 border-t border-border/30 bg-card space-y-2 text-[11px]">
-                            {day.items.map((item) => (
-                              <div key={item.id} className="flex justify-between items-start py-1 border-b border-border/20 last:border-0">
-                                <div>
-                                  <span className="font-semibold text-foreground block">{item.name}</span>
-                                  <span className="text-[9px] text-muted-foreground capitalize">{item.category} • {item.quantity} {item.unit} x {item.unitPrice.toFixed(2)} BDT</span>
-                                </div>
-                                <span className="font-mono text-foreground font-semibold">{item.total.toFixed(2)} BDT</span>
-                              </div>
-                            ))}
-                            {day.items.length === 0 && (
-                              <div className="text-center py-2 text-muted-foreground text-[10px]">
-                                No items logged for this date.
-                              </div>
-                            )}
-                            
-                            <button
-                              onClick={() => handleExportDayPdf(day)}
-                              className="mt-3 w-full py-1.5 bg-primary/10 border border-primary/20 hover:bg-primary/20 text-primary rounded-xl text-[10px] font-bold transition-all flex items-center justify-center gap-1"
-                            >
-                              📄 Export Day PDF
-                            </button>
-                          </div>
-                        )}
+                        <div className="text-right flex items-center gap-3">
+                          <span className="text-sm font-bold text-primary">{day.total.toFixed(2)} BDT</span>
+                          {isExpanded ? <ChevronUp size={16} className="text-muted-foreground" /> : <ChevronDown size={16} className="text-muted-foreground" />}
+                        </div>
                       </div>
-                    );
-                  })}
 
-                  {allPastExpenses.length === 0 && (
-                    <div className="text-center py-8 text-xs text-muted-foreground select-none">
-                      No daily expenses logged yet.
+                      {/* Details */}
+                      {isExpanded && (
+                        <div className="p-5 border-t border-border/30 bg-card space-y-3 text-xs">
+                          {day.items.map((item) => (
+                            <div key={item.id} className="flex justify-between items-start py-2 border-b border-border/20 last:border-0">
+                              <div>
+                                <span className="font-semibold text-foreground block text-sm">{item.name}</span>
+                                <span className="text-xs text-muted-foreground capitalize">{item.category} • {item.quantity} {item.unit} x {item.unitPrice.toFixed(2)} BDT</span>
+                              </div>
+                              <span className="font-mono text-foreground font-semibold text-sm">{item.total.toFixed(2)} BDT</span>
+                            </div>
+                          ))}
+                          {day.items.length === 0 && (
+                            <div className="text-center py-4 text-muted-foreground text-xs">
+                              No items logged for this date.
+                            </div>
+                          )}
+                          
+                          <button
+                            onClick={() => handleExportDayPdf(day)}
+                            className="mt-4 w-full py-2.5 bg-primary/10 border border-primary/20 hover:bg-primary/20 text-primary rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-1.5"
+                          >
+                            📄 Export Day PDF Statement
+                          </button>
+                        </div>
+                      )}
                     </div>
-                  )}
-                </div>
-              </div>
+                  );
+                })}
 
-              {/* Manual registry adder */}
-              <div className="bg-card border border-border/50 rounded-3xl p-6 shadow-sm">
-                <h3 className="text-base font-bold text-foreground mb-4">Manual Addition</h3>
-                <form onSubmit={handleAddManualPayment} className="space-y-3">
-                  <div>
-                    <label className="block text-[9px] font-bold uppercase text-muted-foreground mb-1">Student ID (7 digits)</label>
-                    <input
-                      type="text"
-                      value={manualStudentId}
-                      onChange={(e) => setManualStudentId(e.target.value)}
-                      placeholder="e.g. 2012001"
-                      className="w-full px-3 py-2 bg-muted/40 border border-border/60 rounded-xl text-xs focus:outline-none"
-                      required
-                    />
+                {allPastExpenses.length === 0 && (
+                  <div className="text-center py-12 text-sm text-muted-foreground border border-dashed border-border/40 rounded-3xl select-none">
+                    No daily expenses logged yet in the database.
                   </div>
-                  <div>
-                    <label className="block text-[9px] font-bold uppercase text-muted-foreground mb-1">Student Name</label>
-                    <input
-                      type="text"
-                      value={manualStudentName}
-                      onChange={(e) => setManualStudentName(e.target.value)}
-                      placeholder="e.g. Robin Hossain"
-                      className="w-full px-3 py-2 bg-muted/40 border border-border/60 rounded-xl text-xs focus:outline-none"
-                    />
-                  </div>
-                  <button
-                    type="submit"
-                    className="w-full py-2 bg-primary text-primary-foreground hover:bg-primary/95 rounded-xl text-xs font-bold transition-colors"
-                  >
-                    Register Payment
-                  </button>
-                </form>
+                )}
               </div>
-
-              {/* notice settings removed from here and moved to Dashboard sidebar */}
             </div>
           </div>
         )}
