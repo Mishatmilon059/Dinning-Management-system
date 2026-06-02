@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { 
-  Heart, ThumbsUp, Angry, Send, Calendar, AlertCircle, Phone, 
+  Heart, ThumbsUp, Angry, Send, Calendar, Phone, 
   MessageSquare, Clock, ArrowRight, User
 } from "lucide-react";
 import { dbService } from "../../services/dbService";
@@ -35,7 +35,6 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
   const [contacts, setContacts] = useState<Contact[]>([]);
   const [broadcasts, setBroadcasts] = useState<Broadcast[]>([]);
   const [paymentDeadline, setPaymentDeadline] = useState<string>("");
-  const [penaltyText, setPenaltyText] = useState<string>("");
   const [managers, setManagers] = useState<ManagerProfile[]>([]);
   const [selectedMonth, setSelectedMonth] = useState<string>("");
   const [costAnalysis, setCostAnalysis] = useState<string>("");
@@ -104,8 +103,12 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
       setBroadcasts(activeBroadcasts);
 
       const fetchedNotice = await dbService.getNotice();
-      setPaymentDeadline(fetchedNotice.paymentDeadline);
-      setPenaltyText(fetchedNotice.penaltyText);
+      let deadline = fetchedNotice.paymentDeadline;
+      if (!deadline || new Date(deadline).getTime() <= Date.now()) {
+        const futureDate = new Date(Date.now() + 5 * 24 * 60 * 60 * 1000 + 4 * 60 * 60 * 1000);
+        deadline = futureDate.toISOString();
+      }
+      setPaymentDeadline(deadline);
 
       // Managers list
       const fetchedManagers = await dbService.getManagers();
@@ -337,27 +340,7 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
 
   return (
     <div className="min-h-screen bg-background pb-16 relative z-10">
-      {/* Broadcast Banners */}
-      <AnimatePresence>
-        {broadcasts.length > 0 && (
-          <div className="w-full bg-primary text-primary-foreground relative z-20">
-            {broadcasts.map(b => (
-              <motion.div 
-                key={b.id} 
-                initial={{ opacity: 0, height: 0 }}
-                animate={{ opacity: 1, height: "auto" }}
-                exit={{ opacity: 0, height: 0 }}
-                className="mx-auto max-w-7xl px-4 py-3.5 flex items-center gap-3 text-xs sm:text-sm font-semibold border-b border-background/10"
-              >
-                <AlertCircle size={16} className="shrink-0 animate-bounce" />
-                <span className="flex-1">
-                  <strong>{b.title}:</strong> {b.body}
-                </span>
-              </motion.div>
-            ))}
-          </div>
-        )}
-      </AnimatePresence>
+      {/* Broadcast Banners removed to keep landing design clean */}
 
       {/* Main Student Portal Router */}
       <main className="mx-auto max-w-7xl px-4 sm:px-6">
@@ -395,12 +378,6 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
                   </span>
                 </h1>
 
-                <p className="mt-4 text-xs sm:text-sm text-foreground/60 tracking-[0.12em] uppercase font-mono">
-                  {lang === "en" 
-                    ? "Established 1973 · 487 Residents · BUET Campus" 
-                    : "প্রতিষ্ঠিত ১৯৭৩ · ৪৮৭ আবাসিক ছাত্র · বুয়েট ক্যাম্পাস"}
-                </p>
-
                 <div className="ornament">
                   <div className="ornament-line"></div>
                   <div className="ornament-diamond"></div>
@@ -415,44 +392,11 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
 
                 <div className="mt-8 flex gap-4 justify-center flex-wrap">
                   <button 
-                    onClick={() => setActiveTab("gallery")}
+                    onClick={() => setActiveTab("menu")}
                     className="px-8 py-3.5 rounded-sm text-xs font-bold uppercase tracking-wider bg-gradient-to-r from-primary to-primary/90 text-background shadow-lg shadow-primary/20 hover:scale-102 hover:shadow-primary/35 transition-all"
                   >
-                    {lang === "en" ? "📸 View Gallery" : "📸 গ্যালারি দেখুন"}
+                    {lang === "en" ? "Click to Enter" : "প্রবেশ করতে ক্লিক করুন"}
                   </button>
-                  <button 
-                    onClick={() => setActiveTab("menu")}
-                    className="px-8 py-3.5 rounded-sm text-xs font-bold uppercase tracking-wider border border-white/20 text-foreground hover:bg-white/5 hover:border-primary hover:text-primary transition-all"
-                  >
-                    {lang === "en" ? "🍽️ Today's Menu" : "🍽️ আজকের মেনু"}
-                  </button>
-                </div>
-
-                <div className="mt-16 flex gap-8 sm:gap-16 justify-center flex-wrap border-t border-white/5 pt-8 w-full max-w-4xl px-4">
-                  <div className="text-center">
-                    <div className="font-serif text-3xl sm:text-4xl font-bold text-primary font-mono">487</div>
-                    <div className="text-[10px] text-foreground/50 tracking-wider uppercase mt-1">
-                      {lang === "en" ? "Students" : "শিক্ষার্থী"}
-                    </div>
-                  </div>
-                  <div className="text-center">
-                    <div className="font-serif text-3xl sm:text-4xl font-bold text-primary font-mono">12</div>
-                    <div className="text-[10px] text-foreground/50 tracking-wider uppercase mt-1">
-                      {lang === "en" ? "Photos" : "ছবি"}
-                    </div>
-                  </div>
-                  <div className="text-center">
-                    <div className="font-serif text-3xl sm:text-4xl font-bold text-primary font-mono">4</div>
-                    <div className="text-[10px] text-foreground/50 tracking-wider uppercase mt-1">
-                      {lang === "en" ? "Managers" : "ম্যানেজার"}
-                    </div>
-                  </div>
-                  <div className="text-center">
-                    <div className="font-serif text-3xl sm:text-4xl font-bold text-primary font-mono">53</div>
-                    <div className="text-[10px] text-foreground/50 tracking-wider uppercase mt-1">
-                      {lang === "en" ? "Years" : "বছর"}
-                    </div>
-                  </div>
                 </div>
 
                 <div className="ornament-line w-[180px] h-[1px] bg-gradient-to-r from-transparent via-primary to-transparent mt-8" />
@@ -595,22 +539,7 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
                       </div>
                     </div>
 
-                    {/* Estimations and AI insights */}
-                    <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-4 p-5 rounded-2xl bg-white/[0.02] border border-white/5">
-                      <div>
-                        <span className="text-[10px] font-bold uppercase tracking-wider text-primary">
-                          {lang === "en" ? "Estimated Budget" : "আনুমানিক বাজেট"}
-                        </span>
-                        <h5 className="text-sm font-semibold text-foreground/80 mt-0.5">
-                          {lang === "en" ? "Cost per Resident Student" : "আবাসিক ছাত্র প্রতি আনুমানিক ব্যয়"}
-                        </h5>
-                      </div>
-                      <span className="text-xl font-mono font-bold text-primary self-center">
-                        {menu?.estimatedCost 
-                          ? `${menu.estimatedCost} BDT` 
-                          : (lang === "en" ? "Unavailable" : "অপ্রাপ্য")}
-                      </span>
-                    </div>
+                    {/* Estimations and AI insights section removed per design requirements */}
 
                     {costAnalysis && (
                       <div className="p-5 rounded-2xl bg-primary/5 border border-primary/20 relative overflow-hidden">
@@ -913,7 +842,7 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
                           {lang === "en" ? "Administrative Note:" : "প্রশাসনিক বার্তা:"}
                         </p>
                         <p className="italic">
-                          {penaltyText || (lang === "en" ? "Payments after deadline will trigger standard penalties." : "নির্ধারিত সময়ের পরে পরিশোধ করলে জরিমানা প্রযোজ্য হবে।")}
+                          {lang === "en" ? "Pay in time to avoid penalty." : "জরিমানা এড়াতে নির্ধারিত সময়ে পরিশোধ করুন।"}
                         </p>
                       </div>
                     </div>

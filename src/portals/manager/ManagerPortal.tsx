@@ -1003,6 +1003,30 @@ export const ManagerPortal: React.FC<ManagerPortalProps> = ({ currentUser, addTo
                   />
                 </div>
               </div>
+
+              {/* Payment Deadline config (moved from payments sidebar) */}
+              <div className="bg-card border border-border/50 rounded-3xl p-6 shadow-sm">
+                <h3 className="text-base font-bold text-foreground mb-3">Payment Deadline</h3>
+                <p className="text-xs text-muted-foreground mb-4">Set the monthly mess fee payment deadline for the student portal.</p>
+                <form onSubmit={handleSaveNoticeSettings} className="space-y-3">
+                  <div>
+                    <label className="block text-[9px] font-bold uppercase text-muted-foreground mb-1">Submission Deadline</label>
+                    <input
+                      type="date"
+                      value={deadlineDate}
+                      onChange={(e) => setDeadlineDate(e.target.value)}
+                      className="w-full px-3 py-2 bg-muted/40 border border-border/60 rounded-xl text-xs focus:outline-none"
+                      required
+                    />
+                  </div>
+                  <button
+                    type="submit"
+                    className="w-full py-2 bg-primary text-primary-foreground hover:bg-primary/95 rounded-xl text-xs font-bold transition-colors"
+                  >
+                    Save Payment Deadline
+                  </button>
+                </form>
+              </div>
             </div>
           </div>
         )}
@@ -1375,38 +1399,7 @@ export const ManagerPortal: React.FC<ManagerPortalProps> = ({ currentUser, addTo
                 </form>
               </div>
 
-              {/* notice settings */}
-              <div className="bg-card border border-border/50 rounded-3xl p-6 shadow-sm">
-                <h3 className="text-base font-bold text-foreground mb-4">Deadline & Penalty Notice</h3>
-                <form onSubmit={handleSaveNoticeSettings} className="space-y-3">
-                  <div>
-                    <label className="block text-[9px] font-bold uppercase text-muted-foreground mb-1">Submission Deadline</label>
-                    <input
-                      type="date"
-                      value={deadlineDate}
-                      onChange={(e) => setDeadlineDate(e.target.value)}
-                      className="w-full px-3 py-2 bg-muted/40 border border-border/60 rounded-xl text-xs focus:outline-none"
-                      required
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-[9px] font-bold uppercase text-muted-foreground mb-1">Penalty Policy Text</label>
-                    <input
-                      type="text"
-                      value={penaltyText}
-                      onChange={(e) => setPenaltyText(e.target.value)}
-                      placeholder="e.g. Penalty fee of 200 BDT applies..."
-                      className="w-full px-3 py-2 bg-muted/40 border border-border/60 rounded-xl text-xs focus:outline-none"
-                    />
-                  </div>
-                  <button
-                    type="submit"
-                    className="w-full py-2 bg-primary text-primary-foreground hover:bg-primary/95 rounded-xl text-xs font-bold transition-colors"
-                  >
-                    Save Notice Policies
-                  </button>
-                </form>
-              </div>
+              {/* notice settings removed from here and moved to Dashboard sidebar */}
             </div>
           </div>
         )}
