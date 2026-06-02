@@ -1,4 +1,5 @@
 import { jsPDF } from "jspdf";
+import "jspdf-autotable";
 import type { DayExpenses, ManagerProfile } from "../services/dbService";
 
 interface PdfReportData {
