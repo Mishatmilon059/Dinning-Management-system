@@ -567,6 +567,73 @@ export const ManagerPortal: React.FC<ManagerPortalProps> = ({ currentUser, addTo
     addToast("Ledger statement downloaded as PDF.", "success");
   };
 
+  // Export Day PDF Trigger
+  const handleExportDayPdf = (day: DayExpenses) => {
+    if (day.items.length === 0) {
+      addToast("Day ledger is empty. Cannot export.", "error");
+      return;
+    }
+    const currentMonth = new Date(day.date).toLocaleString("en-US", { month: "long", year: "numeric" });
+    const profile: ManagerProfile = {
+      id: managerId,
+      name: setupForm.name || "Mess Manager",
+      dept: setupForm.dept || "BUET",
+      room: setupForm.room || "Dining",
+      month: currentMonth,
+      bio: setupForm.bio || "",
+      photoUrl: setupForm.photoUrl || ""
+    };
+
+    generateLedgerPdf({
+      manager: profile,
+      month: currentMonth,
+      cashCollected,
+      expenses: [day],
+      startDate: day.date,
+      endDate: day.date
+    });
+    addToast(`Ledger for ${day.date} downloaded as PDF.`, "success");
+  };
+
+  // Export All Expenses to Excel/CSV
+  const handleExportAllToExcel = () => {
+    if (allPastExpenses.length === 0) {
+      addToast("No expenses to export.", "error");
+      return;
+    }
+
+    // Build CSV Content
+    let csvContent = "\uFEFF"; // UTF-8 BOM for Excel compatibility
+    csvContent += "Date,Item Name,Category,Quantity,Unit,Unit Price (BDT),Total (BDT)\n";
+
+    allPastExpenses.forEach(day => {
+      day.items.forEach(item => {
+        const name = `"${item.name.replace(/"/g, '""')}"`;
+        const category = `"${item.category.replace(/"/g, '""')}"`;
+        const quantity = item.quantity;
+        const unit = `"${item.unit.replace(/"/g, '""')}"`;
+        const unitPrice = item.unitPrice;
+        const total = item.total;
+        
+        csvContent += `${day.date},${name},${category},${quantity},${unit},${unitPrice},${total}\n`;
+      });
+    });
+
+    try {
+      const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.setAttribute("href", url);
+      link.setAttribute("download", `HMMS_All_Expenses_Export_${new Date().toISOString().split("T")[0]}.csv`);
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      addToast("All expense data exported to Excel successfully!", "success");
+    } catch {
+      addToast("Failed to export Excel file.", "error");
+    }
+  };
+
   // Computations
   const totalSpent = allPastExpenses.reduce((sum, day) => sum + day.total, 0);
   const currentSpentOnDay = dayExpenses.reduce((sum, item) => sum + item.total, 0);
@@ -1300,8 +1367,18 @@ export const ManagerPortal: React.FC<ManagerPortalProps> = ({ currentUser, addTo
             <div className="space-y-6">
               {/* Daily Expense Tracker & Budgeting List */}
               <div className="bg-card border border-border/50 rounded-3xl p-6 shadow-sm">
-                <h3 className="text-base font-bold text-foreground mb-1">Everyday Expense Tracking</h3>
-                <p className="text-xs text-muted-foreground mb-4">View everyday logged expenses and daily budgeting details.</p>
+                <div className="flex justify-between items-start mb-4 gap-2">
+                  <div className="flex-1">
+                    <h3 className="text-base font-bold text-foreground">Everyday Expense Tracking</h3>
+                    <p className="text-[10px] text-muted-foreground">View everyday logged expenses and daily budgeting details.</p>
+                  </div>
+                  <button
+                    onClick={handleExportAllToExcel}
+                    className="px-2.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-[10px] font-bold transition-all flex items-center gap-1 shadow-sm shrink-0"
+                  >
+                    📊 Export Excel
+                  </button>
+                </div>
                 
                 <div className="space-y-3 max-h-[300px] overflow-y-auto pr-1">
                   {allPastExpenses.map((day) => {
@@ -1343,6 +1420,13 @@ export const ManagerPortal: React.FC<ManagerPortalProps> = ({ currentUser, addTo
                                 No items logged for this date.
                               </div>
                             )}
+                            
+                            <button
+                              onClick={() => handleExportDayPdf(day)}
+                              className="mt-3 w-full py-1.5 bg-primary/10 border border-primary/20 hover:bg-primary/20 text-primary rounded-xl text-[10px] font-bold transition-all flex items-center justify-center gap-1"
+                            >
+                              📄 Export Day PDF
+                            </button>
                           </div>
                         )}
                       </div>
