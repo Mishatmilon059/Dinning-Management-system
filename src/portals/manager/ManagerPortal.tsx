@@ -1,8 +1,8 @@
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect } from "react";
 import { 
-  Plus, Trash2, Edit2, FileText, Upload, AlertTriangle, AlertCircle, 
+  Plus, Trash2, Edit2, FileText, AlertTriangle, AlertCircle, 
   CheckCircle, BarChart3, ListOrdered, Calendar,
-  Activity, UserCheck, Flame 
+  Activity, UserCheck, Flame, ChevronDown, ChevronUp
 } from "lucide-react";
 import { dbService } from "../../services/dbService";
 import type { ManagerProfile, ExpenseItem, DayExpenses, MenuItem, InventoryItem, Complaint } from "../../services/dbService";
@@ -71,6 +71,7 @@ export const ManagerPortal: React.FC<ManagerPortalProps> = ({ currentUser, addTo
   const [paidStudentIds, setPaidStudentIds] = useState<{ id: string; name: string; date: string }[]>([]);
   const [manualStudentId, setManualStudentId] = useState("");
   const [manualStudentName, setManualStudentName] = useState("");
+  const [expandedExpenseDate, setExpandedExpenseDate] = useState<string | null>(null);
 
   // Complaint states
   const [complaints, setComplaints] = useState<Complaint[]>([]);
@@ -395,55 +396,9 @@ export const ManagerPortal: React.FC<ManagerPortalProps> = ({ currentUser, addTo
     }
   };
 
-  // File Uploader - Student Payments CSV Parser
-  const fileInputRef = useRef<HTMLInputElement>(null);
-  
+  // Sanitizer
   const sanitizeStudentName = (name: string): string => {
     return name.replace(/<\/?[^>]+(>|$)/g, "").trim().substring(0, 100);
-  };
-
-  const handleCsvUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-
-    const reader = new FileReader();
-    reader.onload = (event) => {
-      const text = event.target?.result as string;
-      const lines = text.split("\n");
-      const parsed: { id: string; name: string; date: string }[] = [];
-
-      lines.forEach(line => {
-        const parts = line.split(",");
-        if (parts.length >= 2) {
-          const id = parts[0].trim();
-          const name = sanitizeStudentName(parts[1]);
-          if (/^\d{7}$/.test(id)) {
-            if (!parsed.some(p => p.id === id)) {
-              parsed.push({
-                id,
-                name,
-                date: new Date().toISOString().split("T")[0]
-              });
-            }
-          }
-        }
-      });
-
-      if (parsed.length > 0) {
-        setPaidStudentIds(prev => {
-          const filtered = parsed.filter(item => !prev.some(p => p.id === item.id));
-          const newList = [...prev, ...filtered];
-          dbService.savePayments(managerId, newList).catch(() => {
-            addToast("Failed to save payments to database.", "error");
-          });
-          addToast(`Successfully imported ${filtered.length} new student records from CSV!`, "success");
-          return newList;
-        });
-      } else {
-        addToast("No new or valid student records found in CSV.", "error");
-      }
-    };
-    reader.readAsText(file);
   };
 
   // Manual payment list adder
@@ -1343,26 +1298,63 @@ export const ManagerPortal: React.FC<ManagerPortalProps> = ({ currentUser, addTo
 
             {/* CSV upload & manual registry inputs */}
             <div className="space-y-6">
-              {/* CSV Importer */}
+              {/* Daily Expense Tracker & Budgeting List */}
               <div className="bg-card border border-border/50 rounded-3xl p-6 shadow-sm">
-                <h3 className="text-base font-bold text-foreground mb-1">CSV Payment Import</h3>
-                <p className="text-xs text-muted-foreground mb-4">Format: One student record per line (e.g. 2012001, Robin Hossain).</p>
+                <h3 className="text-base font-bold text-foreground mb-1">Everyday Expense Tracking</h3>
+                <p className="text-xs text-muted-foreground mb-4">View everyday logged expenses and daily budgeting details.</p>
                 
-                <input
-                  type="file"
-                  ref={fileInputRef}
-                  onChange={handleCsvUpload}
-                  accept=".csv, .txt"
-                  className="hidden"
-                />
-                
-                <button
-                  onClick={() => fileInputRef.current?.click()}
-                  className="w-full flex items-center justify-center gap-2 border-2 border-dashed border-border/80 hover:border-primary/50 text-foreground py-6 rounded-2xl text-xs font-bold transition-all duration-200"
-                >
-                  <Upload size={16} className="text-muted-foreground" />
-                  Upload CSV Sheet
-                </button>
+                <div className="space-y-3 max-h-[300px] overflow-y-auto pr-1">
+                  {allPastExpenses.map((day) => {
+                    const isExpanded = expandedExpenseDate === day.date;
+                    return (
+                      <div 
+                        key={day.date} 
+                        className="border border-border/40 rounded-2xl bg-muted/20 overflow-hidden transition-all duration-200"
+                      >
+                        {/* Header */}
+                        <div 
+                          onClick={() => setExpandedExpenseDate(isExpanded ? null : day.date)}
+                          className="flex justify-between items-center p-3 cursor-pointer hover:bg-muted/40 transition-colors"
+                        >
+                          <div>
+                            <span className="text-xs font-bold text-foreground block">{day.date}</span>
+                            <span className="text-[10px] text-muted-foreground">{day.items.length} items logged</span>
+                          </div>
+                          <div className="text-right flex items-center gap-2">
+                            <span className="text-xs font-bold text-primary">{day.total.toFixed(2)} BDT</span>
+                            {isExpanded ? <ChevronUp size={14} className="text-muted-foreground" /> : <ChevronDown size={14} className="text-muted-foreground" />}
+                          </div>
+                        </div>
+
+                        {/* Details */}
+                        {isExpanded && (
+                          <div className="p-3 border-t border-border/30 bg-card space-y-2 text-[11px]">
+                            {day.items.map((item) => (
+                              <div key={item.id} className="flex justify-between items-start py-1 border-b border-border/20 last:border-0">
+                                <div>
+                                  <span className="font-semibold text-foreground block">{item.name}</span>
+                                  <span className="text-[9px] text-muted-foreground capitalize">{item.category} • {item.quantity} {item.unit} x {item.unitPrice.toFixed(2)} BDT</span>
+                                </div>
+                                <span className="font-mono text-foreground font-semibold">{item.total.toFixed(2)} BDT</span>
+                              </div>
+                            ))}
+                            {day.items.length === 0 && (
+                              <div className="text-center py-2 text-muted-foreground text-[10px]">
+                                No items logged for this date.
+                              </div>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+
+                  {allPastExpenses.length === 0 && (
+                    <div className="text-center py-8 text-xs text-muted-foreground select-none">
+                      No daily expenses logged yet.
+                    </div>
+                  )}
+                </div>
               </div>
 
               {/* Manual registry adder */}
