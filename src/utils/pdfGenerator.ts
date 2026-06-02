@@ -1,6 +1,13 @@
 import { jsPDF } from "jspdf";
-import "jspdf-autotable";
+import autoTable, { applyPlugin } from "jspdf-autotable";
 import type { DayExpenses, ManagerProfile } from "../services/dbService";
+
+// Register plugin manually to prevent bundle-stripping under Vite ESM
+try {
+  applyPlugin(jsPDF);
+} catch (e) {
+  console.warn("Failed to apply jsPDF plugin:", e);
+}
 
 interface PdfReportData {
   manager: ManagerProfile;
@@ -16,10 +23,9 @@ export function generateLedgerPdf(data: PdfReportData) {
     const { manager, month, cashCollected, expenses, startDate, endDate } = data;
     const doc = new jsPDF();
     
-    // Check if autoTable plugin is registered (FUNC-06)
-    if (typeof (doc as any).autoTable !== "function") {
-      throw new Error("PDF AutoTable plugin is not initialized. Please ensure jspdf-autotable is loaded.");
-    }
+    // Setup robust autoTable calling function (monkypatched or direct ESM call)
+    // @ts-expect-error: autoTable is injected by jspdf-autotable
+    const autoTableFunc = typeof doc.autoTable === "function" ? doc.autoTable.bind(doc) : (opts: any) => autoTable(doc, opts);
   
   // Clean styling constants
   const primaryColor = [187, 28, 62]; // Crimson Velvet default primary
@@ -107,8 +113,7 @@ export function generateLedgerPdf(data: PdfReportData) {
 
   // Render Table
   const tableTop = 88;
-  // @ts-expect-error: autoTable is injected by jspdf-autotable plugin
-  doc.autoTable({
+  autoTableFunc({
     startY: tableTop,
     head: [["Date", "Item Name", "Category", "Quantity", "Unit Price", "Total (BDT)"]],
     body: tableRows,
