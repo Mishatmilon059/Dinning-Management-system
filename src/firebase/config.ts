@@ -45,7 +45,7 @@ if (isFirebaseEnabled) {
     console.error("Failed to initialize Firebase live client:", error);
   }
 } else {
-  throw new Error("CRITICAL CONFIGURATION ERROR: Firebase API keys and environment variables (VITE_FIREBASE_API_KEY, etc.) are missing. The Dining Management System cannot start in production without a live database connection.");
+  console.warn("⚠️ HMMS WARNING (FEAT-04): Firebase keys missing. Running in local MOCK mode. This is insecure and NOT suitable for production deployment!");
 }
 
 export { db, auth, storage };
