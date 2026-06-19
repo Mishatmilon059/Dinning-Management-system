@@ -1,5 +1,10 @@
 import { isFirebaseEnabled, auth } from "../firebase/config";
-import { signOut } from "firebase/auth";
+import { 
+  signOut, 
+  signInWithEmailAndPassword, 
+  createUserWithEmailAndPassword, 
+  signInAnonymously 
+} from "firebase/auth";
 
 export type UserRole = "student" | "manager" | "provost";
 
@@ -90,6 +95,14 @@ class AuthService {
       throw new Error("Invalid email. Only BUET mail addresses (ending with .buet.ac.bd) are allowed.");
     }
 
+    if (isFirebaseEnabled && auth) {
+      try {
+        await signInAnonymously(auth);
+      } catch (error: any) {
+        throw new Error(error.message || "Failed to start a secure session with Firebase.");
+      }
+    }
+
     const studentId = sanitizedEmail.split("@")[0];
     const sessionUser: SessionUser = {
       id: studentId,
@@ -109,33 +122,48 @@ class AuthService {
     const sanitizedTeamName = teamName.trim();
     this.checkRateLimit(sanitizedTeamName);
 
+    const email = sanitizedTeamName.toLowerCase().replace(/\s+/g, "_") + "@hall.buet.ac.bd";
+
+    if (isFirebaseEnabled && auth) {
+      try {
+        await signInWithEmailAndPassword(auth, email, password);
+      } catch (error: any) {
+        this.incrementFailedAttempts(sanitizedTeamName);
+        throw new Error(error.message || "Failed to log in to Firebase Authentication.");
+      }
+    }
+
     const dbService = await import("./dbService").then(m => m.dbService);
     const team = await dbService.getTeamProfile(sanitizedTeamName);
     if (!team) {
       this.incrementFailedAttempts(sanitizedTeamName);
-      throw new Error("Manager team not found. Please sign up first.");
+      throw new Error("Manager team profile not found. Please sign up first.");
     }
 
-    const hashedInput = await hashPassword(password);
-    if (team.passwordHash !== hashedInput) {
-      this.incrementFailedAttempts(sanitizedTeamName);
-      throw new Error("Incorrect password for manager team.");
+    if (!isFirebaseEnabled) {
+      const hashedInput = await hashPassword(password);
+      if (team.passwordHash !== hashedInput) {
+        this.incrementFailedAttempts(sanitizedTeamName);
+        throw new Error("Incorrect password for manager team.");
+      }
     }
 
     const sessionToken = Math.random().toString(36).substring(2) + Date.now().toString(36);
     const sessionUser: SessionUser = {
       id: sanitizedTeamName,
       role: "manager",
-      email: sanitizedTeamName.toLowerCase().replace(/\s+/g, "_") + "@hall.buet.ac.bd",
+      email: email,
       needsSetup: false,
       token: sessionToken
     };
 
     localStorage.setItem("hmms_session", JSON.stringify(sessionUser));
 
-    const activeSessions = getMockAuthData<Record<string, SessionUser>>("active_sessions", {});
-    activeSessions[sessionToken] = sessionUser;
-    saveMockAuthData("active_sessions", activeSessions);
+    if (!isFirebaseEnabled) {
+      const activeSessions = getMockAuthData<Record<string, SessionUser>>("active_sessions", {});
+      activeSessions[sessionToken] = sessionUser;
+      saveMockAuthData("active_sessions", activeSessions);
+    }
 
     this.resetFailedAttempts(sanitizedTeamName);
     return sessionUser;
@@ -167,6 +195,16 @@ class AuthService {
     const existingTeam = await dbService.getTeamProfile(sanitizedTeamName);
     if (existingTeam) {
       throw new Error(`Team name "${sanitizedTeamName}" is already taken.`);
+    }
+
+    const email = sanitizedTeamName.toLowerCase().replace(/\s+/g, "_") + "@hall.buet.ac.bd";
+
+    if (isFirebaseEnabled && auth) {
+      try {
+        await createUserWithEmailAndPassword(auth, email, password);
+      } catch (error: any) {
+        throw new Error(error.message || "Failed to register manager team in Firebase.");
+      }
     }
 
     const passwordHash = await hashPassword(password);
