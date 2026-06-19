@@ -1,5 +1,5 @@
 import { isFirebaseEnabled, auth } from "../firebase/config";
-import { signInWithEmailAndPassword, signOut } from "firebase/auth";
+import { signOut } from "firebase/auth";
 
 export type UserRole = "student" | "manager" | "provost";
 
@@ -10,14 +10,6 @@ export interface SessionUser {
   needsSetup?: boolean;
   token?: string;
 }
-
-const INITIAL_ALLOWED_MANAGERS = ["2012001", "2012002"];
-
-// Default passwords for initial managers: manager1 and manager2
-const INITIAL_PASSWORDS = {
-  "2012001": "fc5c8b25121b6727289f07a04870f701c905ed95a31b674d8258e727ad8b8559", // SHA-256 of "manager1"
-  "2012002": "bc2d449339e8020583492723c34a2e519e99c855a8057de278e5860cc415cb2c"  // SHA-256 of "manager2"
-};
 
 const getMockAuthData = <T>(key: string, initial: T): T => {
   const data = localStorage.getItem(`hmms_mock_auth_${key}`);
@@ -88,139 +80,186 @@ class AuthService {
   }
 
   async login(userId: string, password: string): Promise<SessionUser> {
-    const sanitizedId = userId.trim();
-    this.checkRateLimit(sanitizedId);
+    return this.loginManagerTeam(userId, password);
+  }
 
-    if (isFirebaseEnabled && auth) {
-      try {
-        let email = "";
-        let role: UserRole = "manager";
-        
-        if (sanitizedId.toLowerCase() === "provost") {
-          email = "provost@hall.buet.ac.bd";
-          role = "provost";
-        } else {
-          email = `${sanitizedId}@dept.buet.ac.bd`;
-          role = "manager";
-        }
-
-        const userCredential = await signInWithEmailAndPassword(auth, email, password);
-        
-        let needsSetup = false;
-        if (role === "manager") {
-          const profile = await import("./dbService").then(m => m.dbService.getManagerProfile(sanitizedId));
-          needsSetup = !profile || !profile.name;
-        }
-
-        const sessionUser: SessionUser = {
-          id: sanitizedId,
-          role,
-          email: userCredential.user.email || undefined,
-          needsSetup
-        };
-        
-        localStorage.setItem("hmms_session", JSON.stringify(sessionUser));
-        this.resetFailedAttempts(sanitizedId);
-        return sessionUser;
-      } catch (error) {
-        this.incrementFailedAttempts(sanitizedId);
-        throw new Error("Invalid student ID or password.", { cause: error });
-      }
-    } else {
-      // Mock Login: any password is accepted for testing in Mock Mode
-      if (sanitizedId.toLowerCase() === "provost") {
-        const sessionToken = Math.random().toString(36).substring(2) + Date.now().toString(36);
-        const user = { id: "provost", role: "provost" as UserRole, token: sessionToken };
-        localStorage.setItem("hmms_session", JSON.stringify(user));
-        
-        const activeSessions = getMockAuthData<Record<string, SessionUser>>("active_sessions", {});
-        activeSessions[sessionToken] = { id: "provost", role: "provost" };
-        saveMockAuthData("active_sessions", activeSessions);
-
-        this.resetFailedAttempts(sanitizedId);
-        return user;
-      }
-
-      // Check if ID is in the allowed managers list
-      const allowed = getMockAuthData<string[]>("allowed_managers", INITIAL_ALLOWED_MANAGERS);
-      if (allowed.includes(sanitizedId)) {
-        const sessionToken = Math.random().toString(36).substring(2) + Date.now().toString(36);
-        const user = { 
-          id: sanitizedId, 
-          role: "manager" as UserRole,
-          needsSetup: true,
-          token: sessionToken
-        };
-
-        // Check if profile is already configured
-        const profile = localStorage.getItem("hmms_mock_managers");
-        if (profile) {
-          const managers = JSON.parse(profile);
-          if (managers[sanitizedId] && managers[sanitizedId].name) {
-            user.needsSetup = false;
-          }
-        }
-
-        localStorage.setItem("hmms_session", JSON.stringify(user));
-
-        const activeSessions = getMockAuthData<Record<string, SessionUser>>("active_sessions", {});
-        activeSessions[sessionToken] = { id: sanitizedId, role: "manager", needsSetup: user.needsSetup };
-        saveMockAuthData("active_sessions", activeSessions);
-
-        this.resetFailedAttempts(sanitizedId);
-        return user;
-      } else {
-        this.incrementFailedAttempts(sanitizedId);
-        throw new Error("Access denied. Student ID is not registered as an active Mess Manager.");
-      }
+  async loginStudent(email: string): Promise<SessionUser> {
+    const sanitizedEmail = email.trim().toLowerCase();
+    const buetEmailRegex = /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.buet\.ac\.bd$/;
+    if (!buetEmailRegex.test(sanitizedEmail)) {
+      throw new Error("Invalid email. Only BUET mail addresses (ending with .buet.ac.bd) are allowed.");
     }
+
+    const studentId = sanitizedEmail.split("@")[0];
+    const sessionUser: SessionUser = {
+      id: studentId,
+      role: "student",
+      email: sanitizedEmail,
+      needsSetup: false
+    };
+
+    localStorage.setItem("hmms_session", JSON.stringify(sessionUser));
+    localStorage.setItem("hmms_student_id", studentId);
+    localStorage.setItem("hmms_student_email", sanitizedEmail);
+
+    return sessionUser;
+  }
+
+  async loginManagerTeam(teamName: string, password: string): Promise<SessionUser> {
+    const sanitizedTeamName = teamName.trim();
+    this.checkRateLimit(sanitizedTeamName);
+
+    const dbService = await import("./dbService").then(m => m.dbService);
+    const team = await dbService.getTeamProfile(sanitizedTeamName);
+    if (!team) {
+      this.incrementFailedAttempts(sanitizedTeamName);
+      throw new Error("Manager team not found. Please sign up first.");
+    }
+
+    const hashedInput = await hashPassword(password);
+    if (team.passwordHash !== hashedInput) {
+      this.incrementFailedAttempts(sanitizedTeamName);
+      throw new Error("Incorrect password for manager team.");
+    }
+
+    const sessionToken = Math.random().toString(36).substring(2) + Date.now().toString(36);
+    const sessionUser: SessionUser = {
+      id: sanitizedTeamName,
+      role: "manager",
+      email: sanitizedTeamName.toLowerCase().replace(/\s+/g, "_") + "@hall.buet.ac.bd",
+      needsSetup: false,
+      token: sessionToken
+    };
+
+    localStorage.setItem("hmms_session", JSON.stringify(sessionUser));
+
+    const activeSessions = getMockAuthData<Record<string, SessionUser>>("active_sessions", {});
+    activeSessions[sessionToken] = sessionUser;
+    saveMockAuthData("active_sessions", activeSessions);
+
+    this.resetFailedAttempts(sanitizedTeamName);
+    return sessionUser;
+  }
+
+  async signupManagerTeam(teamName: string, password: string, managers: any[]): Promise<void> {
+    const sanitizedTeamName = teamName.trim();
+    if (!sanitizedTeamName) {
+      throw new Error("Team name is required.");
+    }
+    if (password.length < 6) {
+      throw new Error("Password must be at least 6 characters.");
+    }
+    if (managers.length !== 3) {
+      throw new Error("A manager team must consist of exactly 3 managers.");
+    }
+
+    // Validate details for all 3 managers
+    for (let i = 0; i < managers.length; i++) {
+      const mgr = managers[i];
+      if (!mgr.name?.trim()) throw new Error(`Manager ${i + 1} Name is required.`);
+      if (!/^\d{7}$/.test(mgr.id?.trim() || "")) throw new Error(`Manager ${i + 1} ID must be exactly 7 digits.`);
+      if (!mgr.room?.trim()) throw new Error(`Manager ${i + 1} Room is required.`);
+      if (!mgr.dept?.trim()) throw new Error(`Manager ${i + 1} Department is required.`);
+      if (!mgr.mobile?.trim()) throw new Error(`Manager ${i + 1} Mobile number is required.`);
+    }
+
+    const dbService = await import("./dbService").then(m => m.dbService);
+    const existingTeam = await dbService.getTeamProfile(sanitizedTeamName);
+    if (existingTeam) {
+      throw new Error(`Team name "${sanitizedTeamName}" is already taken.`);
+    }
+
+    const passwordHash = await hashPassword(password);
+    const teamData = {
+      teamName: sanitizedTeamName,
+      passwordHash,
+      managers: managers.map(mgr => ({
+        id: mgr.id.trim(),
+        name: mgr.name.trim(),
+        dept: mgr.dept.trim(),
+        room: mgr.room.trim(),
+        mobile: mgr.mobile.trim(),
+        photoUrl: mgr.photoUrl || "https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=200&h=200&fit=crop",
+        bio: mgr.bio?.trim() || `Active Mess Manager for ${sanitizedTeamName}`
+      }))
+    };
+
+    await dbService.saveTeamProfile(sanitizedTeamName, teamData);
   }
 
   getCurrentUser(): SessionUser | null {
-    if (isFirebaseEnabled && auth) {
-      const fbUser = auth.currentUser;
-      if (!fbUser) return null;
-      const email = fbUser.email || "";
-      let role: UserRole = "manager";
-      let id = "";
-      if (email === "provost@hall.buet.ac.bd") {
-        role = "provost";
-        id = "provost";
-      } else {
-        const match = email.match(/^(\d{7})@/);
-        if (match) {
-          id = match[1];
-          role = "manager";
-        }
-      }
-      if (!id) return null;
-      
-      const session = localStorage.getItem("hmms_session");
-      if (session) {
-        try {
-          const parsed = JSON.parse(session);
-          if (parsed.id === id && parsed.role === role) {
-            return parsed;
-          }
-        } catch {
-          // ignore parsing error
-        }
-      }
-      return { id, role, email };
-    } else {
-      // Mock mode session verification (AUTH-03)
-      const session = localStorage.getItem("hmms_session");
-      if (!session) return null;
+    const session = localStorage.getItem("hmms_session");
+    if (!session) return null;
+    try {
+      return JSON.parse(session) as SessionUser;
+    } catch {
+      return null;
+    }
+  }
+
+  getRegisteredStudents(): { name: string; email: string }[] {
+    const defaultStudents = [
+      { name: "Sajid Hasan (EEE)", email: "206059@eee.buet.ac.bd" },
+      { name: "Fahim Rahman (CSE)", email: "206060@cse.buet.ac.bd" },
+      { name: "Naimul Islam (ME)", email: "206061@me.buet.ac.bd" }
+    ];
+    return getMockAuthData<{ name: string; email: string }[]>("registered_students", defaultStudents);
+  }
+
+  addMockStudent(name: string, email: string): void {
+    const list = this.getRegisteredStudents();
+    const sanitizedEmail = email.trim().toLowerCase();
+    if (list.some(s => s.email === sanitizedEmail)) {
+      throw new Error("Student email already exists in mock registry.");
+    }
+    list.push({ name: name.trim(), email: sanitizedEmail });
+    saveMockAuthData("registered_students", list);
+  }
+
+  deleteMockStudent(email: string): void {
+    const list = this.getRegisteredStudents();
+    const updated = list.filter(s => s.email !== email.trim().toLowerCase());
+    saveMockAuthData("registered_students", updated);
+  }
+
+  async getRegisteredTeams(): Promise<any[]> {
+    const dbService = await import("./dbService").then(m => m.dbService);
+    // Seed Team Delta if manager_teams is empty in mock storage
+    const rawTeams = localStorage.getItem("hmms_mock_manager_teams");
+    let teamsObj: Record<string, any> = {};
+    if (rawTeams) {
       try {
-        const parsed = JSON.parse(session) as SessionUser & { token?: string };
-        if (!parsed.token) return null;
-        const activeSessions = getMockAuthData<Record<string, SessionUser>>("active_sessions", {});
-        if (!activeSessions[parsed.token]) return null;
-        return parsed;
+        teamsObj = JSON.parse(rawTeams);
       } catch {
-        return null;
+        teamsObj = {};
       }
     }
+    
+    if (Object.keys(teamsObj).length === 0) {
+      // Seed Team Delta
+      const deltaHash = await hashPassword("123456");
+      const teamData = {
+        teamName: "Team Delta",
+        passwordHash: deltaHash,
+        managers: [
+          { name: "Sajib Hasan", id: "2060059", room: "302", dept: "EEE", mobile: "01711223344", photoUrl: "https://images.unsplash.com/photo-1539571696357-5a69c17a67c6?w=200&h=200&fit=crop", bio: "Active Mess Manager for Team Delta" },
+          { name: "Fahim Rahman", id: "2060060", room: "115", dept: "CSE", mobile: "01822334455", photoUrl: "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=200&h=200&fit=crop", bio: "Active Mess Manager for Team Delta" },
+          { name: "Naimul Islam", id: "2060061", room: "204", dept: "ME", mobile: "01933445566", photoUrl: "https://images.unsplash.com/photo-1500648767791-00dcc994a43e?w=200&h=200&fit=crop", bio: "Active Mess Manager for Team Delta" }
+        ]
+      };
+      await dbService.saveTeamProfile("Team Delta", teamData as any);
+      
+      const updatedTeams = localStorage.getItem("hmms_mock_manager_teams");
+      if (updatedTeams) {
+        try {
+          teamsObj = JSON.parse(updatedTeams);
+        } catch {
+          // ignore
+        }
+      }
+    }
+    
+    return Object.values(teamsObj);
   }
 
   async logout(): Promise<void> {
@@ -242,63 +281,8 @@ class AuthService {
       await signOut(auth);
     }
     localStorage.removeItem("hmms_session");
-  }
-
-  // --- PROVOST ACTIONS: MANAGER PROFILES ---
-  async getRegisteredManagers(): Promise<string[]> {
-    if (isFirebaseEnabled) {
-      return INITIAL_ALLOWED_MANAGERS;
-    } else {
-      return getMockAuthData<string[]>("allowed_managers", INITIAL_ALLOWED_MANAGERS);
-    }
-  }
-
-  async registerManager(studentId: string): Promise<string> {
-    const sanitizedId = studentId.trim();
-    if (!/^\d{7}$/.test(sanitizedId)) {
-      throw new Error("Student ID must be exactly 7 digits.");
-    }
-
-    // Verify duplication (FUNC-11)
-    const registered = await this.getRegisteredManagers();
-    if (registered.includes(sanitizedId)) {
-      throw new Error("Manager is already registered.");
-    }
-
-    // Generate random secure password using CSPRNG (AUTH-06)
-    const array = new Uint8Array(10);
-    window.crypto.getRandomValues(array);
-    const chars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!@#$%";
-    const password = Array.from(array).map(b => chars[b % chars.length]).join("");
-
-    if (isFirebaseEnabled) {
-      console.log(`Cloud Function Triggered: Create account for ${sanitizedId} and send email.`);
-    } else {
-      const allowed = getMockAuthData<string[]>("allowed_managers", INITIAL_ALLOWED_MANAGERS);
-      allowed.push(sanitizedId);
-      saveMockAuthData("allowed_managers", allowed);
-      
-      const passwords = getMockAuthData<Record<string, string>>("manager_passwords", INITIAL_PASSWORDS);
-      passwords[sanitizedId] = await hashPassword(password);
-      saveMockAuthData("manager_passwords", passwords);
-    }
-
-    return password;
-  }
-
-  async deactivateManager(studentId: string): Promise<void> {
-    const sanitizedId = studentId.trim();
-    if (isFirebaseEnabled) {
-      // Cloud Function call to disable user auth
-    } else {
-      let allowed = getMockAuthData<string[]>("allowed_managers", INITIAL_ALLOWED_MANAGERS);
-      allowed = allowed.filter(id => id !== sanitizedId);
-      saveMockAuthData("allowed_managers", allowed);
-      
-      const passwords = getMockAuthData<Record<string, string>>("manager_passwords", INITIAL_PASSWORDS);
-      delete passwords[sanitizedId];
-      saveMockAuthData("manager_passwords", passwords);
-    }
+    localStorage.removeItem("hmms_student_id");
+    localStorage.removeItem("hmms_student_email");
   }
 }
 

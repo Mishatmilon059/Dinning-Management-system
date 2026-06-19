@@ -5,7 +5,7 @@ import {
   MessageSquare, Clock, ArrowRight, User
 } from "lucide-react";
 import { dbService } from "../../services/dbService";
-import type { MenuItem, Contact, Broadcast, Comment, ManagerProfile } from "../../services/dbService";
+import type { MenuItem, Contact, Broadcast, Comment, ManagerProfile, GalleryItem } from "../../services/dbService";
 
 interface StudentPortalProps {
   addToast: (text: string, type: "success" | "error" | "info") => void;
@@ -14,15 +14,6 @@ interface StudentPortalProps {
   setActiveTab: (tab: "home" | "gallery" | "menu" | "notices" | "contacts" | "managers") => void;
 }
 
-const GALLERY_ITEMS = [
-  { name: "Md. Rajib Khan", dept: "CSE", batch: "2022", img: "https://images.unsplash.com/photo-1529156069898-49953e39b3ac?w=400&q=80" },
-  { name: "Fatima Akter", dept: "EEE", batch: "2023", img: "https://images.unsplash.com/photo-1506157786151-b8491531f063?w=400&q=80" },
-  { name: "Ariful Islam", dept: "ME", batch: "2022", img: "https://images.unsplash.com/photo-1507525428034-b723cf961d3e?w=400&q=80" },
-  { name: "Rifa Akter", dept: "ChE", batch: "2024", img: "https://images.unsplash.com/photo-1517486808906-6ca8b3f04846?w=400&q=80" },
-  { name: "Tanvir Rahman", dept: "CE", batch: "2021", img: "https://images.unsplash.com/photo-1511556532299-8f662fc26c06?w=400&q=80" },
-  { name: "Sajid Hasan", dept: "CSE", batch: "2023", img: "https://images.unsplash.com/photo-1488590528505-98d2b5aba04b?w=400&q=80" }
-];
-
 export const StudentPortal: React.FC<StudentPortalProps> = ({ 
   addToast, 
   lang, 
@@ -30,6 +21,7 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
   setActiveTab 
 }) => {
   // --- STATE FOR DATA ---
+  const [galleryItems, setGalleryItems] = useState<GalleryItem[]>([]);
   const [menu, setMenu] = useState<MenuItem | null>(null);
   const [reactions, setReactions] = useState<Record<string, number>>({ like: 0, love: 0, angry: 0 });
   const [contacts, setContacts] = useState<Contact[]>([]);
@@ -56,6 +48,48 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
   const [cdHours, setCdHours] = useState("00");
   const [cdMins, setCdMins] = useState("00");
   const [hasVoted, setHasVoted] = useState<Record<string, boolean>>({});
+  const [activeLightboxImage, setActiveLightboxImage] = useState<string | null>(null);
+
+  // Student Photo Upload states
+  const [showUploadModal, setShowUploadModal] = useState(false);
+  const [studentPhotoName, setStudentPhotoName] = useState("");
+  const [studentPhotoDept, setStudentPhotoDept] = useState("");
+  const [studentPhotoBatch, setStudentPhotoBatch] = useState("2024");
+  const [studentPhotoFile, setStudentPhotoFile] = useState("");
+  const [isUploadingPhoto, setIsUploadingPhoto] = useState(false);
+
+  const handleStudentPhotoSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!studentPhotoName.trim() || !studentPhotoDept.trim() || !studentPhotoFile) {
+      addToast("Title, Department, and Photo File are required.", "error");
+      return;
+    }
+    setIsUploadingPhoto(true);
+    try {
+      const pendingItem = {
+        id: Math.random().toString(36).substring(2, 9),
+        name: studentPhotoName.trim(),
+        dept: studentPhotoDept.trim(),
+        batch: studentPhotoBatch.trim() || "2024",
+        img: studentPhotoFile,
+        status: "pending" as const
+      };
+      await dbService.saveGalleryItem(pendingItem);
+      addToast("Memory photo submitted! It will appear in the album once approved by mess managers.", "success");
+      setStudentPhotoName("");
+      setStudentPhotoDept("");
+      setStudentPhotoBatch("2024");
+      setStudentPhotoFile("");
+      setShowUploadModal(false);
+      // Reload approved list
+      const fetched = await dbService.getGalleryItems(true);
+      setGalleryItems(fetched);
+    } catch (err) {
+      addToast("Failed to submit photo.", "error");
+    } finally {
+      setIsUploadingPhoto(false);
+    }
+  };
 
   const formattedDate = new Date().toISOString().split("T")[0]; // YYYY-MM-DD
 
@@ -79,6 +113,14 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
   // Fetch Data
   useEffect(() => {
     const loadData = async () => {
+      // Gallery Items
+      try {
+        const fetchedGallery = await dbService.getGalleryItems(true);
+        setGalleryItems(fetchedGallery);
+      } catch (err) {
+        console.error("Failed to load gallery items:", err);
+      }
+
       // Menu & Reactions
       const fetchedMenu = await dbService.getMenu(formattedDate);
       setMenu(fetchedMenu);
@@ -113,7 +155,11 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
       // Managers list
       const fetchedManagers = await dbService.getManagers();
       setManagers(fetchedManagers);
-      if (fetchedManagers.length > 0) {
+      const currentMonth = new Date().toLocaleDateString("en-US", { month: "long", year: "numeric" });
+      const hasCurrentMonth = fetchedManagers.some(m => m.month === currentMonth);
+      if (hasCurrentMonth) {
+        setSelectedMonth(currentMonth);
+      } else if (fetchedManagers.length > 0) {
         setSelectedMonth(fetchedManagers[0].month);
       }
 
@@ -331,6 +377,52 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
     );
   };
 
+  // Lightbox Modal markup
+  const renderLightboxModal = () => {
+    if (!activeLightboxImage) return null;
+    return (
+      <div 
+        className="fixed inset-0 bg-black/90 backdrop-blur-md z-[9999] flex items-center justify-center p-4 cursor-zoom-out animate-fade-in"
+        onClick={() => setActiveLightboxImage(null)}
+      >
+        <button 
+          onClick={() => setActiveLightboxImage(null)}
+          className="absolute top-6 right-6 text-white/70 hover:text-white bg-white/10 hover:bg-white/20 px-3 py-1.5 rounded-full text-xs font-bold transition-all"
+        >
+          ✕ Close
+        </button>
+        <img 
+          src={activeLightboxImage} 
+          alt="Food Item Large View" 
+          className="max-w-[90vw] max-h-[90vh] object-contain rounded-2xl shadow-2xl border border-white/10"
+        />
+      </div>
+    );
+  };
+
+  // Reusable horizontal infinite scrolling image marquee
+  const renderMarquee = (images: string[] | undefined, defaultImg: string, altText: string) => {
+    const imgs = images && images.length > 0 ? images : [defaultImg];
+    const duplicatedImgs = imgs.length > 1 ? [...imgs, ...imgs] : imgs;
+
+    return (
+      <div className="h-44 overflow-hidden relative bg-black/20 flex items-center w-full">
+        <div className={`${imgs.length > 1 ? "animate-marquee-ltr" : "w-full h-full flex"}`}>
+          {duplicatedImgs.map((img, i) => (
+            <img
+              key={i}
+              src={img}
+              alt={`${altText} ${i}`}
+              onClick={() => setActiveLightboxImage(img)}
+              className="h-44 object-cover cursor-pointer hover:opacity-85 transition-opacity inline-block flex-shrink-0"
+              style={{ width: imgs.length > 1 ? "150px" : "100%" }}
+            />
+          ))}
+        </div>
+      </div>
+    );
+  };
+
   // Page Transition variants
   const tabContentVariants = {
     hidden: { opacity: 0, y: 16 },
@@ -418,15 +510,135 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
                     {lang === "en" ? "Hall " : "হল "} 
                     <em className="font-serif italic text-primary not-italic">{lang === "en" ? "Gallery" : "গ্যালারি"}</em>
                   </h2>
-                  <p className="max-w-[600px] mx-auto text-xs sm:text-sm text-foreground/50 mt-4 leading-relaxed">
+                  <p className="max-w-[600px] mx-auto text-xs sm:text-sm text-foreground/50 mt-4 leading-relaxed mb-6">
                     {lang === "en" 
                       ? "Beautiful moments captured by our hall residents. Each photo tells a story of life, friendship, and community at Sher-E-Bangla Hall."
                       : "আমাদের হলবাসীদের ক্যামেরায় বন্দী চমৎকার কিছু মুহূর্ত। প্রতিটি ছবি শেরে বাংলা হলের জীবন, বন্ধুত্ব এবং সৌহার্দ্যের গল্প বলে।"}
                   </p>
+
+                  <div className="flex justify-center mb-8">
+                    <button
+                      type="button"
+                      onClick={() => setShowUploadModal(true)}
+                      className="px-6 py-2.5 bg-primary text-background rounded-full text-xs font-bold uppercase tracking-wider hover:scale-105 shadow-lg shadow-primary/20 hover:shadow-primary/35 transition-all"
+                    >
+                      {lang === "en" ? "Share a Hall Memory" : "হলের স্মৃতি শেয়ার করুন"}
+                    </button>
+                  </div>
                 </div>
 
+                {showUploadModal && (
+                  <div className="fixed inset-0 bg-background/80 backdrop-blur-md flex items-center justify-center p-4 z-50 animate-fadeIn">
+                    <div className="max-w-md w-full bg-card border border-border/50 rounded-3xl p-6 sm:p-8 shadow-2xl space-y-6">
+                      <div className="flex justify-between items-center">
+                        <h3 className="text-lg font-bold text-foreground">
+                          {lang === "en" ? "Share Hall Memory" : "হলের স্মৃতি শেয়ার করুন"}
+                        </h3>
+                        <button
+                          type="button"
+                          onClick={() => setShowUploadModal(false)}
+                          className="text-foreground/45 hover:text-foreground text-sm font-bold"
+                        >
+                          ✕
+                        </button>
+                      </div>
+
+                      <form onSubmit={handleStudentPhotoSubmit} className="space-y-4">
+                        <div>
+                          <label className="block text-xs font-bold uppercase text-muted-foreground mb-1">
+                            {lang === "en" ? "Image Title / Caption" : "ছবির শিরোনাম / ক্যাপশন"}
+                          </label>
+                          <input
+                            type="text"
+                            value={studentPhotoName}
+                            onChange={(e) => setStudentPhotoName(e.target.value)}
+                            placeholder={lang === "en" ? "e.g. Friendly Cricket Match" : "যেমনঃ হলের ক্রিকেট ম্যাচ"}
+                            className="w-full px-3.5 py-2.5 bg-muted/40 border border-border/40 rounded-xl text-xs focus:outline-none text-foreground"
+                            required
+                          />
+                        </div>
+
+                        <div className="grid grid-cols-2 gap-3">
+                          <div>
+                            <label className="block text-xs font-bold uppercase text-muted-foreground mb-1">
+                              {lang === "en" ? "Your Dept" : "আপনার বিভাগ"}
+                            </label>
+                            <input
+                              type="text"
+                              value={studentPhotoDept}
+                              onChange={(e) => setStudentPhotoDept(e.target.value)}
+                              placeholder="e.g. EEE"
+                              className="w-full px-3.5 py-2.5 bg-muted/40 border border-border/40 rounded-xl text-xs focus:outline-none text-foreground"
+                              required
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-xs font-bold uppercase text-muted-foreground mb-1">
+                              {lang === "en" ? "Your Batch" : "আপনার ব্যাচ"}
+                            </label>
+                            <input
+                              type="text"
+                              value={studentPhotoBatch}
+                              onChange={(e) => setStudentPhotoBatch(e.target.value)}
+                              placeholder="e.g. 2022"
+                              className="w-full px-3.5 py-2.5 bg-muted/40 border border-border/40 rounded-xl text-xs focus:outline-none text-foreground"
+                              required
+                            />
+                          </div>
+                        </div>
+
+                        <div>
+                          <label className="block text-xs font-bold uppercase text-muted-foreground mb-1">
+                            {lang === "en" ? "Upload Photo" : "ছবি আপলোড করুন"}
+                          </label>
+                          <div className="flex gap-3 items-center">
+                            {studentPhotoFile ? (
+                              <img src={studentPhotoFile} alt="Preview" className="w-12 h-12 rounded-xl object-cover border border-white/10 shrink-0" />
+                            ) : (
+                              <div className="w-12 h-12 rounded-xl bg-white/5 border border-white/10 flex items-center justify-center text-foreground/20 text-[9px] shrink-0 font-bold">No Image</div>
+                            )}
+                            <input
+                              type="file"
+                              accept="image/*"
+                              onChange={(e) => {
+                                const file = e.target.files?.[0];
+                                if (file) {
+                                  const reader = new FileReader();
+                                  reader.onloadend = () => {
+                                    setStudentPhotoFile(reader.result as string);
+                                  };
+                                  reader.readAsDataURL(file);
+                                }
+                              }}
+                              className="w-full text-xs text-foreground file:mr-2 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:text-xs file:font-semibold file:bg-primary/20 file:text-primary hover:file:bg-primary/30 file:cursor-pointer"
+                              required
+                            />
+                          </div>
+                        </div>
+
+                        <div className="flex gap-3 justify-end pt-4 border-t border-white/5">
+                          <button
+                            type="button"
+                            onClick={() => setShowUploadModal(false)}
+                            className="px-4 py-2 border border-border rounded-xl text-xs font-bold hover:bg-muted/50 transition-colors"
+                          >
+                            {lang === "en" ? "Cancel" : "বাতিল"}
+                          </button>
+                          <button
+                            type="submit"
+                            disabled={isUploadingPhoto}
+                            className="px-6 py-2 bg-primary text-background rounded-xl text-xs font-bold hover:scale-102 disabled:opacity-50 transition-all"
+                          >
+                            {isUploadingPhoto ? (lang === "en" ? "Uploading..." : "আপলোড হচ্ছে...") : (lang === "en" ? "Submit Photo" : "সাবমিট করুন")}
+                          </button>
+                        </div>
+                      </form>
+                    </div>
+                  </div>
+                )}
+
                 <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
-                  {GALLERY_ITEMS.map((item, idx) => (
+                  {galleryItems.map((item, idx) => (
                     <div key={idx} className="group relative rounded-2xl overflow-hidden bg-white/[0.02] border border-white/5 hover:border-primary/30 shadow-[0_8px_32px_rgba(0,0,0,0.4)] hover:-translate-y-1 transition-all duration-300">
                       <div className="h-60 overflow-hidden relative">
                         <img 
@@ -477,64 +689,48 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
                   {/* Left Column: Menus & Feedback */}
                   <div className="lg:col-span-2 space-y-8">
                     {/* Menu grid */}
-                    <div className="grid gap-6 sm:grid-cols-3">
-                      {/* Breakfast Card */}
-                      <div className="group rounded-2xl overflow-hidden border border-white/5 bg-white/[0.02] shadow-lg">
-                        <div className="h-44 overflow-hidden relative">
-                          <img 
-                            src="https://images.unsplash.com/photo-1533089860892-a7c6f0a88666?w=300&q=80" 
-                            alt="Breakfast" 
-                            className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
-                          />
-                          <span className="absolute top-3 left-3 px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider bg-amber-500/20 border border-amber-500/40 text-amber-400 backdrop-blur-md">
-                            {lang === "en" ? "Breakfast" : "সকালের নাস্তা"}
-                          </span>
-                        </div>
-                        <div className="p-5">
-                          <h4 className="font-serif text-lg font-bold text-foreground">Morning Fuel</h4>
-                          <p className="mt-2 text-xs text-foreground/70 leading-relaxed min-h-[50px]">
-                            {menu?.breakfast || (lang === "en" ? "No breakfast logged today." : "আজকে সকালের নাস্তা লিপিবদ্ধ করা হয়নি।")}
-                          </p>
-                        </div>
-                      </div>
-
+                    <div className="grid gap-6 sm:grid-cols-2">
                       {/* Lunch Card */}
                       <div className="group rounded-2xl overflow-hidden border border-white/5 bg-white/[0.02] shadow-lg">
-                        <div className="h-44 overflow-hidden relative">
-                          <img 
-                            src="https://images.unsplash.com/photo-1546069901-ba9599a7e63c?w=300&q=80" 
-                            alt="Lunch" 
-                            className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
-                          />
-                          <span className="absolute top-3 left-3 px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider bg-emerald-500/20 border border-emerald-500/40 text-emerald-400 backdrop-blur-md">
+                        <div className="relative">
+                          {renderMarquee(menu?.lunchImages, "https://images.unsplash.com/photo-1546069901-ba9599a7e63c?w=300&q=80", "Lunch")}
+                          <span className="absolute top-3 left-3 px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider bg-emerald-500/20 border border-emerald-500/40 text-emerald-400 backdrop-blur-md z-10 pointer-events-none">
                             {lang === "en" ? "Lunch" : "দুপুরের খাবার"}
                           </span>
                         </div>
                         <div className="p-5">
-                          <h4 className="font-serif text-lg font-bold text-foreground">Afternoon Feast</h4>
-                          <p className="mt-2 text-xs text-foreground/70 leading-relaxed min-h-[50px]">
-                            {menu?.lunch || (lang === "en" ? "No lunch logged today." : "আজকে দুপুরের খাবার লিপিবদ্ধ করা হয়নি।")}
-                          </p>
+                          <h4 className="font-serif text-[11px] font-bold uppercase tracking-widest text-foreground/40 mb-1.5">Afternoon Feast</h4>
+                          {menu?.lunch ? (
+                            <p className="text-xl sm:text-2xl font-serif font-extrabold text-primary tracking-tight leading-snug min-h-[50px] italic drop-shadow-[0_1px_2px_rgba(0,0,0,0.5)]">
+                              {menu.lunch}
+                            </p>
+                          ) : (
+                            <p className="text-xs font-medium text-foreground/35 italic leading-relaxed min-h-[50px] flex items-center">
+                              {lang === "en" ? "No lunch logged today." : "আজকে দুপুরের খাবার লিপিবদ্ধ করা হয়নি।"}
+                            </p>
+                          )}
                         </div>
                       </div>
 
                       {/* Dinner Card */}
                       <div className="group rounded-2xl overflow-hidden border border-white/5 bg-white/[0.02] shadow-lg">
-                        <div className="h-44 overflow-hidden relative">
-                          <img 
-                            src="https://images.unsplash.com/photo-1544025162-d76694265947?w=300&q=80" 
-                            alt="Dinner" 
-                            className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
-                          />
-                          <span className="absolute top-3 left-3 px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider bg-sky-500/20 border border-sky-500/40 text-sky-400 backdrop-blur-md">
+                        <div className="relative">
+                          {renderMarquee(menu?.dinnerImages, "https://images.unsplash.com/photo-1544025162-d76694265947?w=300&q=80", "Dinner")}
+                          <span className="absolute top-3 left-3 px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider bg-sky-500/20 border border-sky-500/40 text-sky-400 backdrop-blur-md z-10 pointer-events-none">
                             {lang === "en" ? "Dinner" : "রাতের খাবার"}
                           </span>
                         </div>
                         <div className="p-5">
-                          <h4 className="font-serif text-lg font-bold text-foreground">Night Delight</h4>
-                          <p className="mt-2 text-xs text-foreground/70 leading-relaxed min-h-[50px]">
-                            {menu?.dinner || (lang === "en" ? "No dinner logged today." : "আজকে রাতের খাবার লিপিবদ্ধ করা হয়নি।")}
-                          </p>
+                          <h4 className="font-serif text-[11px] font-bold uppercase tracking-widest text-foreground/40 mb-1.5">Night Delight</h4>
+                          {menu?.dinner ? (
+                            <p className="text-xl sm:text-2xl font-serif font-extrabold text-primary tracking-tight leading-snug min-h-[50px] italic drop-shadow-[0_1px_2px_rgba(0,0,0,0.5)]">
+                              {menu.dinner}
+                            </p>
+                          ) : (
+                            <p className="text-xs font-medium text-foreground/35 italic leading-relaxed min-h-[50px] flex items-center">
+                              {lang === "en" ? "No dinner logged today." : "আজকে রাতের খাবার লিপিবদ্ধ করা হয়নি।"}
+                            </p>
+                          )}
                         </div>
                       </div>
                     </div>
@@ -718,19 +914,27 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
                         {lang === "en" ? "Active Managers" : "চলতি মেসের পরিচালক"}
                       </h3>
                       <div className="space-y-4 mt-4">
-                        {managers.filter(m => m.month === "May 2026").map(m => (
-                          <div key={m.id} className="flex items-center gap-3">
-                            <img 
-                              src={m.photoUrl} 
-                              alt={m.name} 
-                              className="h-10 w-10 rounded-xl object-cover border border-white/10"
-                            />
-                            <div>
-                              <span className="block text-xs font-bold text-foreground">{m.name}</span>
-                              <span className="block text-[10px] text-foreground/45">ID: {m.id} ({m.dept})</span>
+                        {(() => {
+                          const currentMonthStr = new Date().toLocaleDateString("en-US", { month: "long", year: "numeric" });
+                          const activeMonth = managers.some(m => m.month === currentMonthStr) ? currentMonthStr : (managers[0]?.month || "May 2026");
+                          const filtered = managers.filter(m => m.month === activeMonth);
+                          if (filtered.length === 0) {
+                            return <p className="text-xs text-foreground/40">{lang === "en" ? "No active managers" : "কোনো সক্রিয় পরিচালক নেই"}</p>;
+                          }
+                          return filtered.map(m => (
+                            <div key={m.id} className="flex items-center gap-3">
+                              <img 
+                                src={m.photoUrl} 
+                                alt={m.name} 
+                                className="h-10 w-10 rounded-xl object-cover border border-white/10"
+                              />
+                              <div>
+                                <span className="block text-xs font-bold text-foreground">{m.name}</span>
+                                <span className="block text-[10px] text-foreground/45">ID: {m.id} ({m.dept})</span>
+                              </div>
                             </div>
-                          </div>
-                        ))}
+                          ));
+                        })()}
                       </div>
                       <button
                         onClick={() => setActiveTab("managers")}
@@ -1021,6 +1225,7 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
         </AnimatePresence>
       </main>
       {renderVerificationModal()}
+      {renderLightboxModal()}
     </div>
   );
 };

@@ -16,6 +16,31 @@ export interface ManagerProfile {
   photoUrl: string;
 }
 
+export interface TeamManagerInfo {
+  name: string;
+  id: string;
+  room: string;
+  dept: string;
+  mobile: string;
+  photoUrl?: string;
+  bio?: string;
+}
+
+export interface ManagerTeam {
+  teamName: string;
+  passwordHash: string;
+  managers: TeamManagerInfo[];
+}
+
+export interface GalleryItem {
+  id: string;
+  name: string;
+  dept: string;
+  batch: string;
+  img: string;
+  status?: "approved" | "pending";
+}
+
 export interface ExpenseItem {
   id: string;
   name: string;
@@ -34,10 +59,11 @@ export interface DayExpenses {
 }
 
 export interface MenuItem {
-  breakfast: string;
   lunch: string;
   dinner: string;
   estimatedCost?: number;
+  lunchImages?: string[];
+  dinnerImages?: string[];
 }
 
 export interface InventoryItem {
@@ -164,6 +190,15 @@ const INITIAL_BROADCASTS: Broadcast[] = [
     publishDate: "2026-05-25",
     expiryDate: "2026-05-29"
   }
+];
+
+const INITIAL_GALLERY_ITEMS: GalleryItem[] = [
+  { id: "g1", name: "Md. Rajib Khan", dept: "CSE", batch: "2022", img: "https://images.unsplash.com/photo-1529156069898-49953e39b3ac?w=400&q=80" },
+  { id: "g2", name: "Fatima Akter", dept: "EEE", batch: "2023", img: "https://images.unsplash.com/photo-1506157786151-b8491531f063?w=400&q=80" },
+  { id: "g3", name: "Ariful Islam", dept: "ME", batch: "2022", img: "https://images.unsplash.com/photo-1507525428034-b723cf961d3e?w=400&q=80" },
+  { id: "g4", name: "Rifa Akter", dept: "ChE", batch: "2024", img: "https://images.unsplash.com/photo-1517486808906-6ca8b3f04846?w=400&q=80" },
+  { id: "g5", name: "Tanvir Rahman", dept: "CE", batch: "2021", img: "https://images.unsplash.com/photo-1511556532299-8f662fc26c06?w=400&q=80" },
+  { id: "g6", name: "Sajid Hasan", dept: "CSE", batch: "2023", img: "https://images.unsplash.com/photo-1488590528505-98d2b5aba04b?w=400&q=80" }
 ];
 
 // Seed Helper for Mock
@@ -298,6 +333,64 @@ class DbService {
     await this.logAction("UPDATE_PROFILE", { id, ...data });
   }
 
+  // --- MANAGER TEAMS (V1) ---
+  async getTeamProfile(teamName: string): Promise<ManagerTeam | null> {
+    if (isFirebaseEnabled && db) {
+      const docRef = doc(db, "teams", teamName.toLowerCase());
+      const snap = await getDoc(docRef);
+      return snap.exists() ? (snap.data() as ManagerTeam) : null;
+    } else {
+      const teams = getMockData<Record<string, ManagerTeam>>("manager_teams", {});
+      return teams[teamName.toLowerCase()] || null;
+    }
+  }
+
+  async saveTeamProfile(teamName: string, teamData: ManagerTeam): Promise<void> {
+    const key = teamName.toLowerCase();
+    if (isFirebaseEnabled && db) {
+      const docRef = doc(db, "teams", key);
+      await setDoc(docRef, teamData);
+      
+      for (const mgr of teamData.managers) {
+        const mgrRef = doc(db, "managers", mgr.id);
+        await setDoc(mgrRef, {
+          id: mgr.id,
+          name: mgr.name,
+          dept: mgr.dept,
+          room: mgr.room,
+          month: new Date().toLocaleDateString("en-US", { month: "long", year: "numeric" }),
+          bio: mgr.bio || `Mess Manager for team ${teamData.teamName}`,
+          photoUrl: mgr.photoUrl || "https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=200&h=200&fit=crop"
+        });
+      }
+    } else {
+      const teams = getMockData<Record<string, ManagerTeam>>("manager_teams", {});
+      teams[key] = teamData;
+      saveMockData("manager_teams", teams);
+
+      const managers = getMockData<Record<string, ManagerProfile>>("managers", INITIAL_MANAGERS);
+      const currentMonth = new Date().toLocaleDateString("en-US", { month: "long", year: "numeric" });
+      for (const mgr of teamData.managers) {
+        managers[mgr.id] = {
+          id: mgr.id,
+          name: mgr.name,
+          dept: mgr.dept,
+          room: mgr.room,
+          month: currentMonth,
+          bio: mgr.bio || `Mess Manager for team ${teamData.teamName}`,
+          photoUrl: mgr.photoUrl || "https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=200&h=200&fit=crop"
+        };
+      }
+      saveMockData("managers", managers);
+    }
+    
+    this.clearCache("managers_list");
+    for (const mgr of teamData.managers) {
+      this.clearCache(`manager_profile_${mgr.id}`);
+    }
+    await this.logAction("SAVE_TEAM_PROFILE", { teamName });
+  }
+
   // --- CASH COLLECTION ---
   async getCashCollection(managerId: string): Promise<number> {
     if (isFirebaseEnabled && db) {
@@ -410,7 +503,7 @@ class DbService {
       result = snap.exists() ? (snap.data() as MenuItem) : null;
     } else {
       const menus = getMockData<Record<string, MenuItem>>("menus", {
-        "2026-05-26": { breakfast: "Khichuri, Egg, Achar", lunch: "Rice, Ruhi Fish Curry, Lentils, Salad", dinner: "Rice, Beef Bhuna, Potato Mash, Dal", estimatedCost: 150 }
+        "2026-05-26": { lunch: "Rice, Ruhi Fish Curry, Lentils, Salad", dinner: "Rice, Beef Bhuna, Potato Mash, Dal", estimatedCost: 150, lunchImages: [], dinnerImages: [] }
       });
       result = menus[date] || null;
     }
@@ -828,6 +921,64 @@ class DbService {
       saveMockData(`payments_${managerId}`, paidStudentIds);
     }
     await this.logAction("SAVE_PAYMENTS", { managerId, count: paidStudentIds.length });
+  }
+
+  // --- GALLERY ---
+  async getGalleryItems(onlyApproved = false): Promise<GalleryItem[]> {
+    const cacheKey = `gallery_list_${onlyApproved}`;
+    const cached = this.getCached<GalleryItem[]>(cacheKey);
+    if (cached) return cached;
+
+    let result: GalleryItem[];
+    if (isFirebaseEnabled && db) {
+      const q = collection(db, "gallery");
+      const snap = await getDocs(q);
+      result = snap.docs.map(d => d.data() as GalleryItem);
+    } else {
+      result = getMockData<GalleryItem[]>("gallery", INITIAL_GALLERY_ITEMS);
+    }
+
+    result = result.map(item => ({ ...item, status: item.status || "approved" }));
+    if (onlyApproved) {
+      result = result.filter(item => item.status === "approved");
+    }
+
+    this.setCache(cacheKey, result);
+    return result;
+  }
+
+  async saveGalleryItem(item: GalleryItem): Promise<void> {
+    const itemWithStatus = { ...item, status: item.status || "approved" };
+    if (isFirebaseEnabled && db) {
+      const docRef = doc(db, "gallery", itemWithStatus.id);
+      await setDoc(docRef, itemWithStatus);
+    } else {
+      const list = getMockData<GalleryItem[]>("gallery", INITIAL_GALLERY_ITEMS);
+      const index = list.findIndex(g => g.id === itemWithStatus.id);
+      if (index > -1) {
+        list[index] = itemWithStatus;
+      } else {
+        list.push(itemWithStatus);
+      }
+      saveMockData("gallery", list);
+    }
+    this.clearCache("gallery_list_false");
+    this.clearCache("gallery_list_true");
+    await this.logAction("SAVE_GALLERY_ITEM", itemWithStatus);
+  }
+
+  async deleteGalleryItem(id: string): Promise<void> {
+    if (isFirebaseEnabled && db) {
+      const docRef = doc(db, "gallery", id);
+      await deleteDoc(docRef);
+    } else {
+      let list = getMockData<GalleryItem[]>("gallery", INITIAL_GALLERY_ITEMS);
+      list = list.filter(g => g.id !== id);
+      saveMockData("gallery", list);
+    }
+    this.clearCache("gallery_list_false");
+    this.clearCache("gallery_list_true");
+    await this.logAction("DELETE_GALLERY_ITEM", { id });
   }
 }
 

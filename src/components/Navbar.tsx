@@ -41,11 +41,11 @@ export const Navbar: React.FC<NavbarProps> = ({
 
   const navLinks = [
     { id: "home", en: "Home", bn: "হোম" },
-    { id: "gallery", en: "Gallery", bn: "গ্যালারি" },
     { id: "menu", en: "Menu", bn: "মেনু" },
     { id: "notices", en: "Notices", bn: "নোটিশ" },
     { id: "contacts", en: "Contacts", bn: "যোগাযোগ" },
     { id: "managers", en: "Managers", bn: "ম্যানেজার" },
+    { id: "gallery", en: "Gallery", bn: "গ্যালারি" },
   ] as const;
 
   return (
@@ -108,11 +108,17 @@ export const Navbar: React.FC<NavbarProps> = ({
         {currentUser ? (
           <div className="hidden sm:flex items-center gap-2 bg-white/5 px-3 py-1 rounded-full border border-white/5 text-xs font-bold text-primary">
             <Shield size={12} />
-            <Link to={currentUser.role === "provost" ? "/provost" : "/manager"} className="hover:underline">
-              {currentUser.role === "provost" ? (lang === "en" ? "Provost" : "প্রভোস্ট") : (lang === "en" ? "Manager" : "ম্যানেজার")}
-            </Link>
+            {currentUser.role === "student" ? (
+              <span className="text-foreground/80 max-w-[150px] truncate" title={currentUser.email}>
+                {currentUser.email}
+              </span>
+            ) : (
+              <Link to="/manager" className="hover:underline">
+                {lang === "en" ? `Team: ${currentUser.id}` : `টিম: ${currentUser.id}`}
+              </Link>
+            )}
             <span className="text-white/20">|</span>
-            <button onClick={onLogout} className="text-foreground/60 hover:text-destructive transition-colors">
+            <button onClick={onLogout} className="text-foreground/60 hover:text-destructive transition-colors" title="Logout">
               <LogOut size={12} />
             </button>
           </div>
@@ -160,13 +166,19 @@ export const Navbar: React.FC<NavbarProps> = ({
             </Link>
           ) : (
             <div className="flex items-center justify-between mt-2 bg-white/5 p-3 rounded-xl border border-white/5">
-              <Link
-                to={currentUser.role === "provost" ? "/provost" : "/manager"}
-                onClick={() => setMobileMenuOpen(false)}
-                className="text-sm font-bold text-primary hover:underline"
-              >
-                {currentUser.role === "provost" ? "Provost Dashboard" : "Manager Workspace"}
-              </Link>
+              {currentUser.role === "student" ? (
+                <span className="text-sm font-bold text-primary truncate max-w-[200px]" title={currentUser.email}>
+                  {currentUser.email}
+                </span>
+              ) : (
+                <Link
+                  to="/manager"
+                  onClick={() => setMobileMenuOpen(false)}
+                  className="text-sm font-bold text-primary hover:underline"
+                >
+                  {lang === "en" ? `Team: ${currentUser.id}` : `টিম: ${currentUser.id}`}
+                </Link>
+              )}
               <button onClick={() => { onLogout(); setMobileMenuOpen(false); }} className="text-destructive">
                 <LogOut size={16} />
               </button>
