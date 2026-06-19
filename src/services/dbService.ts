@@ -335,7 +335,7 @@ class DbService {
 
   // --- MANAGER TEAMS (V1) ---
   async getTeamProfile(teamName: string): Promise<ManagerTeam | null> {
-    const key = teamName.toLowerCase().replace(/\s+/g, "_");
+    const key = teamName.toLowerCase();
     if (isFirebaseEnabled && db) {
       const docRef = doc(db, "teams", key);
       const snap = await getDoc(docRef);
@@ -347,7 +347,7 @@ class DbService {
   }
 
   async saveTeamProfile(teamName: string, teamData: ManagerTeam): Promise<void> {
-    const key = teamName.toLowerCase().replace(/\s+/g, "_");
+    const key = teamName.toLowerCase();
     if (isFirebaseEnabled && db) {
       const docRef = doc(db, "teams", key);
       await setDoc(docRef, teamData);
