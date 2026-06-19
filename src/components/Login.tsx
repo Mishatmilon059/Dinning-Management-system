@@ -1,9 +1,8 @@
-import React, { useState, useEffect } from "react";
+import React, { useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { ShieldAlert, Lock, AlertCircle, ArrowRight, Mail, Users, ChevronDown, ChevronRight, UserCheck, Plus, Trash, User } from "lucide-react";
+import { ShieldAlert, Lock, AlertCircle, ArrowRight, Mail, Users, ChevronDown, ChevronRight } from "lucide-react";
 import { authService } from "../services/authService";
 import type { SessionUser } from "../services/authService";
-import { isFirebaseEnabled } from "../firebase/config";
 
 interface LoginProps {
   onLoginSuccess: (user: SessionUser) => void;
@@ -45,92 +44,7 @@ export const Login: React.FC<LoginProps> = ({ onLoginSuccess, addToast }) => {
     { name: "", id: "", room: "", dept: "", mobile: "", photoUrl: "" }
   ]);
 
-  // Mock Registry state
-  const [mockStudents, setMockStudents] = useState<{ name: string; email: string }[]>([]);
-  const [mockTeams, setMockTeams] = useState<any[]>([]);
-  const [newStudentName, setNewStudentName] = useState("");
-  const [newStudentEmail, setNewStudentEmail] = useState("");
-  const [isRegistryExpanded, setIsRegistryExpanded] = useState(false);
 
-  // Load mock data on mount
-  useEffect(() => {
-    if (!isFirebaseEnabled) {
-      const fetchMockData = async () => {
-        const students = authService.getRegisteredStudents();
-        setMockStudents(students);
-        const teams = await authService.getRegisteredTeams();
-        setMockTeams(teams);
-      };
-      fetchMockData();
-    }
-  }, []);
-
-  const refreshMockRegistry = async () => {
-    const students = authService.getRegisteredStudents();
-    setMockStudents(students);
-    const teams = await authService.getRegisteredTeams();
-    setMockTeams(teams);
-  };
-
-  const handleAddMockStudent = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!newStudentName.trim() || !newStudentEmail.trim()) {
-      addToast("Student Name and Email are required.", "error");
-      return;
-    }
-    const buetEmailRegex = /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.buet\.ac\.bd$/;
-    if (!buetEmailRegex.test(newStudentEmail.trim().toLowerCase())) {
-      addToast("Email must end with .buet.ac.bd", "error");
-      return;
-    }
-    try {
-      authService.addMockStudent(newStudentName, newStudentEmail);
-      addToast("Mock student added successfully!", "success");
-      setNewStudentName("");
-      setNewStudentEmail("");
-      refreshMockRegistry();
-    } catch (err) {
-      addToast(err instanceof Error ? err.message : "Failed to add student.", "error");
-    }
-  };
-
-  const handleDeleteMockStudent = (email: string) => {
-    try {
-      authService.deleteMockStudent(email);
-      addToast("Mock student deleted.", "success");
-      refreshMockRegistry();
-    } catch (err) {
-      addToast(err instanceof Error ? err.message : "Failed to delete student.", "error");
-    }
-  };
-
-  const handleQuickLoginStudent = async (email: string) => {
-    setLoading(true);
-    try {
-      const user = await authService.loginStudent(email);
-      addToast(`Logged in as student ${email}`, "success");
-      onLoginSuccess(user);
-      navigate("/");
-    } catch (err) {
-      addToast(err instanceof Error ? err.message : "Login failed", "error");
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleQuickLoginTeam = async (teamName: string, pass: string) => {
-    setLoading(true);
-    try {
-      const user = await authService.loginManagerTeam(teamName, pass);
-      addToast(`Manager team "${user.id}" logged in!`, "success");
-      onLoginSuccess(user);
-      navigate("/manager");
-    } catch (err) {
-      addToast(err instanceof Error ? err.message : "Login failed", "error");
-    } finally {
-      setLoading(false);
-    }
-  };
 
   const handleStudentSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -659,135 +573,7 @@ export const Login: React.FC<LoginProps> = ({ onLoginSuccess, addToast }) => {
         )}
       </div>
 
-      {/* MOCK REGISTRY CARD */}
-      {!isFirebaseEnabled && (
-        <div className="max-w-md w-full glass glass-border p-6 rounded-[20px] shadow-xl relative z-10 animate-fadeIn mt-4">
-          <button
-            type="button"
-            onClick={() => setIsRegistryExpanded(!isRegistryExpanded)}
-            className="w-full flex items-center justify-between text-sm font-bold text-primary tracking-wide focus:outline-none"
-          >
-            <div className="flex items-center gap-2">
-              <UserCheck size={18} />
-              <span>TESTING MOCK REGISTRY</span>
-            </div>
-            {isRegistryExpanded ? <ChevronDown size={18} /> : <ChevronRight size={18} />}
-          </button>
 
-          {isRegistryExpanded && (
-            <div className="mt-4 space-y-6 animate-fadeIn text-foreground/80">
-              {/* Students section */}
-              <div className="space-y-3">
-                <div className="flex justify-between items-center border-b border-white/10 pb-1.5">
-                  <h4 className="text-xs font-bold uppercase tracking-wider text-primary/80">Registered Students</h4>
-                </div>
-                
-                {mockStudents.length === 0 ? (
-                  <p className="text-xs text-foreground/40">No mock students registered.</p>
-                ) : (
-                  <div className="max-h-[150px] overflow-y-auto space-y-2 pr-1 scrollbar-thin">
-                    {mockStudents.map((student) => (
-                      <div key={student.email} className="flex justify-between items-center bg-white/5 border border-white/5 p-2 rounded-xl text-xs">
-                        <div className="truncate pr-2">
-                          <p className="font-bold truncate">{student.name}</p>
-                          <p className="font-mono text-[10px] text-foreground/45 truncate">{student.email}</p>
-                        </div>
-                        <div className="flex items-center gap-1.5 shrink-0">
-                          <button
-                            type="button"
-                            onClick={() => handleQuickLoginStudent(student.email)}
-                            className="bg-primary/20 text-primary hover:bg-primary/30 px-2 py-1 rounded-lg font-bold"
-                          >
-                            Login
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => handleDeleteMockStudent(student.email)}
-                            className="text-rose-400 hover:bg-rose-500/20 p-1 rounded-lg"
-                            title="Delete Student"
-                          >
-                            <Trash size={12} />
-                          </button>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                )}
-
-                {/* Add Mock Student Form */}
-                <form onSubmit={handleAddMockStudent} className="flex gap-2">
-                  <input
-                    type="text"
-                    value={newStudentName}
-                    onChange={(e) => setNewStudentName(e.target.value)}
-                    placeholder="Student Name"
-                    className="flex-1 px-2.5 py-1.5 bg-white/5 border border-white/10 rounded-lg text-xs focus:outline-none text-foreground placeholder:text-foreground/30"
-                    required
-                  />
-                  <input
-                    type="email"
-                    value={newStudentEmail}
-                    onChange={(e) => setNewStudentEmail(e.target.value)}
-                    placeholder="email@buet.ac.bd"
-                    className="flex-1 px-2.5 py-1.5 bg-white/5 border border-white/10 rounded-lg text-xs focus:outline-none text-foreground placeholder:text-foreground/30"
-                    required
-                  />
-                  <button
-                    type="submit"
-                    className="bg-primary text-background p-1.5 rounded-lg flex items-center justify-center hover:scale-105 transition-all shrink-0 font-bold text-xs"
-                    title="Add Student"
-                  >
-                    <Plus size={14} />
-                  </button>
-                </form>
-              </div>
-
-              {/* Manager Teams section */}
-              <div className="space-y-3">
-                <div className="flex justify-between items-center border-b border-white/10 pb-1.5">
-                  <h4 className="text-xs font-bold uppercase tracking-wider text-primary/80">Registered Manager Teams</h4>
-                </div>
-
-                {mockTeams.length === 0 ? (
-                  <p className="text-xs text-foreground/40">No manager teams registered. Click signup above to create one.</p>
-                ) : (
-                  <div className="max-h-[180px] overflow-y-auto space-y-2 pr-1 scrollbar-thin text-foreground">
-                    {mockTeams.map((team) => (
-                      <div key={team.teamName} className="bg-white/5 border border-white/5 p-2 rounded-xl text-xs space-y-1.5">
-                        <div className="flex justify-between items-center">
-                          <div>
-                            <span className="font-bold text-primary">{team.teamName}</span>
-                            <span className="ml-2 text-[9px] bg-white/10 text-foreground/50 px-1 py-0.5 rounded-md font-mono">Pass: 123456 (or custom)</span>
-                          </div>
-                          <button
-                            type="button"
-                            onClick={() => handleQuickLoginTeam(team.teamName, "123456")}
-                            className="bg-primary/20 text-primary hover:bg-primary/30 px-2 py-1 rounded-lg font-bold"
-                          >
-                            Login
-                          </button>
-                        </div>
-                        <div className="grid grid-cols-3 gap-1 pt-1 border-t border-white/5">
-                          {team.managers?.map((mgr: any, index: number) => (
-                            <div key={index} className="text-[9px] text-foreground/60 truncate flex items-center gap-1">
-                              {mgr.photoUrl ? (
-                                <img src={mgr.photoUrl} alt="" className="w-3.5 h-3.5 rounded-full object-cover shrink-0" />
-                              ) : (
-                                <User size={10} className="shrink-0" />
-                              )}
-                              <span className="truncate">{mgr.name}</span>
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-            </div>
-          )}
-        </div>
-      )}
     </div>
   );
 };
