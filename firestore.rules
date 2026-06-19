@@ -11,18 +11,17 @@ service cloud.firestore {
     }
     
     function isProvost() {
-      return isAuthenticated() && getUserEmail() == 'provost@hall.buet.ac.bd';
+      return isAuthenticated() && 
+             request.auth.token.email != null && 
+             request.auth.token.email == 'provost@hall.buet.ac.bd';
     }
     
     function isManager(managerId) {
-      return isAuthenticated() && (
-        getUserEmail() == managerId.toLowerCase().replace(" ", "_") + '@hall.buet.ac.bd' ||
-        getUserEmail().endsWith('@hall.buet.ac.bd')
-      );
+      return isAuthenticated() && request.auth.token.email != null;
     }
 
     function isAnyManager() {
-      return isAuthenticated() && getUserEmail().endsWith('@hall.buet.ac.bd');
+      return isAuthenticated() && request.auth.token.email != null;
     }
 
     // Default deny
