@@ -236,11 +236,7 @@ class AuthService {
   }
 
   getRegisteredStudents(): { name: string; email: string }[] {
-    const defaultStudents = [
-      { name: "Sajid Hasan (EEE)", email: "206059@eee.buet.ac.bd" },
-      { name: "Fahim Rahman (CSE)", email: "206060@cse.buet.ac.bd" },
-      { name: "Naimul Islam (ME)", email: "206061@me.buet.ac.bd" }
-    ];
+    const defaultStudents: { name: string; email: string }[] = [];
     return getMockAuthData<{ name: string; email: string }[]>("registered_students", defaultStudents);
   }
 
@@ -261,8 +257,6 @@ class AuthService {
   }
 
   async getRegisteredTeams(): Promise<any[]> {
-    const dbService = await import("./dbService").then(m => m.dbService);
-    // Seed Team Delta if manager_teams is empty in mock storage
     const rawTeams = localStorage.getItem("hmms_mock_manager_teams");
     let teamsObj: Record<string, any> = {};
     if (rawTeams) {
@@ -272,31 +266,6 @@ class AuthService {
         teamsObj = {};
       }
     }
-    
-    if (Object.keys(teamsObj).length === 0) {
-      // Seed Team Delta
-      const deltaHash = await hashPassword("123456");
-      const teamData = {
-        teamName: "Team Delta",
-        passwordHash: deltaHash,
-        managers: [
-          { name: "Sajib Hasan", id: "2060059", room: "302", dept: "EEE", mobile: "01711223344", photoUrl: "https://images.unsplash.com/photo-1539571696357-5a69c17a67c6?w=200&h=200&fit=crop", bio: "Active Mess Manager for Team Delta" },
-          { name: "Fahim Rahman", id: "2060060", room: "115", dept: "CSE", mobile: "01822334455", photoUrl: "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=200&h=200&fit=crop", bio: "Active Mess Manager for Team Delta" },
-          { name: "Naimul Islam", id: "2060061", room: "204", dept: "ME", mobile: "01933445566", photoUrl: "https://images.unsplash.com/photo-1500648767791-00dcc994a43e?w=200&h=200&fit=crop", bio: "Active Mess Manager for Team Delta" }
-        ]
-      };
-      await dbService.saveTeamProfile("Team Delta", teamData as any);
-      
-      const updatedTeams = localStorage.getItem("hmms_mock_manager_teams");
-      if (updatedTeams) {
-        try {
-          teamsObj = JSON.parse(updatedTeams);
-        } catch {
-          // ignore
-        }
-      }
-    }
-    
     return Object.values(teamsObj);
   }
 

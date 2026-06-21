@@ -5,13 +5,13 @@ import {
   MessageSquare, Clock, ArrowRight, User
 } from "lucide-react";
 import { dbService } from "../../services/dbService";
-import type { MenuItem, Contact, Broadcast, Comment, ManagerProfile, GalleryItem } from "../../services/dbService";
+import type { MenuItem, Contact, Broadcast, Comment, ManagerProfile, GalleryItem, ProvostProfile, Complaint } from "../../services/dbService";
 
 interface StudentPortalProps {
   addToast: (text: string, type: "success" | "error" | "info") => void;
   lang: "en" | "bn";
-  activeTab: "home" | "gallery" | "menu" | "notices" | "contacts" | "managers";
-  setActiveTab: (tab: "home" | "gallery" | "menu" | "notices" | "contacts" | "managers") => void;
+  activeTab: "home" | "gallery" | "menu" | "notices" | "contacts" | "managers" | "complaints";
+  setActiveTab: (tab: "home" | "gallery" | "menu" | "notices" | "contacts" | "managers" | "complaints") => void;
 }
 
 export const StudentPortal: React.FC<StudentPortalProps> = ({ 
@@ -30,6 +30,8 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
   const [managers, setManagers] = useState<ManagerProfile[]>([]);
   const [selectedMonth, setSelectedMonth] = useState<string>("");
   const [costAnalysis, setCostAnalysis] = useState<string>("");
+  const [provost, setProvost] = useState<ProvostProfile | null>(null);
+  const [developerPhoto, setDeveloperPhoto] = useState<string>("");
 
   // Student verification states (FEAT-01)
   const [studentId, setStudentId] = useState<string | null>(() => localStorage.getItem("hmms_student_id"));
@@ -57,6 +59,58 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
   const [studentPhotoBatch, setStudentPhotoBatch] = useState("2024");
   const [studentPhotoFile, setStudentPhotoFile] = useState("");
   const [isUploadingPhoto, setIsUploadingPhoto] = useState(false);
+
+  // Student Complaint Desk states
+  const [complaintDesc, setComplaintDesc] = useState("");
+  const [complaintCategory, setComplaintCategory] = useState("Food Quality");
+  const [complaintName, setComplaintName] = useState("");
+  const [complaintRoom, setComplaintRoom] = useState("");
+  const [complaintBatch, setComplaintBatch] = useState("");
+  const [submittingComplaint, setSubmittingComplaint] = useState(false);
+
+  const handleStudentComplaintSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!complaintDesc.trim()) return;
+
+    setSubmittingComplaint(true);
+    try {
+      const newComplaint: Complaint = {
+        id: "comp_" + Math.random().toString(36).substring(2, 9),
+        category: complaintCategory,
+        date: new Date().toISOString().split("T")[0],
+        severity: "medium", // default
+        description: complaintDesc,
+        studentName: complaintName.trim() || undefined,
+        studentRoom: complaintRoom.trim() || undefined,
+        studentBatch: complaintBatch.trim() || undefined,
+        status: "pending", // pending action by managers
+        endorsingManagers: []
+      };
+
+      await dbService.saveComplaint(newComplaint);
+      addToast(
+        lang === "en" 
+          ? "Complaint submitted successfully to the managers desk!" 
+          : "অভিযোগটি সফলভাবে ম্যানেজারদের কাছে পাঠানো হয়েছে!",
+        "success"
+      );
+      
+      // Reset form
+      setComplaintDesc("");
+      setComplaintName("");
+      setComplaintRoom("");
+      setComplaintBatch("");
+      setComplaintCategory("Food Quality");
+    } catch (err) {
+      console.error(err);
+      addToast(
+        lang === "en" ? "Failed to submit complaint. Please try again." : "অভিযোগ জমা দিতে ব্যর্থ হয়েছে। অনুগ্রহ করে আবার চেষ্টা করুন।",
+        "error"
+      );
+    } finally {
+      setSubmittingComplaint(false);
+    }
+  };
 
   const handleStudentPhotoSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -113,30 +167,46 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
   // Fetch Data
   useEffect(() => {
     const loadData = async () => {
-      // Gallery Items
-      try {
-        const fetchedGallery = await dbService.getGalleryItems(true);
-        setGalleryItems(fetchedGallery);
-      } catch (err) {
-        console.error("Failed to load gallery items:", err);
-      }
+      // Load all data in parallel using Promise.all (PERF-01)
+      const [
+        fetchedGallery,
+        fetchedMenu,
+        fetchedReactions,
+        commentsRes,
+        provostProfile,
+        devPhoto,
+        fetchedContacts,
+        fetchedBroadcasts,
+        fetchedNotice,
+        fetchedManagers,
+        voted
+      ] = await Promise.all([
+        dbService.getGalleryItems(true).catch(err => { console.error("Gallery fail:", err); return []; }),
+        dbService.getMenu(formattedDate).catch(err => { console.error("Menu fail:", err); return null; }),
+        dbService.getReactions(formattedDate).catch(err => { console.error("Reactions fail:", err); return { like: 0, love: 0, angry: 0 }; }),
+        dbService.getFeedbackPaginated(formattedDate, 10, null).catch(err => { console.error("Comments fail:", err); return { items: [], lastDoc: null, hasMore: false }; }),
+        dbService.getProvostProfile().catch(err => { console.error("Provost Profile fail:", err); return null; }),
+        dbService.getDeveloperPhoto().catch(err => { console.error("Dev Photo fail:", err); return ""; }),
+        dbService.getContacts().catch(err => { console.error("Contacts fail:", err); return []; }),
+        dbService.getBroadcasts().catch(err => { console.error("Broadcasts fail:", err); return []; }),
+        dbService.getNotice().catch(err => { console.error("Notice fail:", err); return { paymentDeadline: "", penaltyText: "" }; }),
+        dbService.getManagers().catch(err => { console.error("Managers fail:", err); return []; }),
+        studentId ? dbService.hasVoted(formattedDate, studentId).catch(err => { console.error("Voted status fail:", err); return false; }) : Promise.resolve(false)
+      ]);
 
-      // Menu & Reactions
-      const fetchedMenu = await dbService.getMenu(formattedDate);
+      setGalleryItems(fetchedGallery);
       setMenu(fetchedMenu);
-
-      const fetchedReactions = await dbService.getReactions(formattedDate);
       setReactions(fetchedReactions);
+      
+      // Comments page setup
+      setCommentsPage(commentsRes.items);
+      setLastDocComments(commentsRes.lastDoc);
+      setHasMoreComments(commentsRes.hasMore);
 
-      // Load first page of comments
-      await loadComments(true);
-
-      // Contacts
-      const fetchedContacts = await dbService.getContacts();
+      setProvost(provostProfile);
+      setDeveloperPhoto(devPhoto);
       setContacts(fetchedContacts);
 
-      // Broadcasts & Notices
-      const fetchedBroadcasts = await dbService.getBroadcasts();
       // Exclude expired broadcasts (timezone verified)
       const activeBroadcasts = fetchedBroadcasts.filter(b => {
         if (!b.expiryDate) return true;
@@ -144,7 +214,6 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
       });
       setBroadcasts(activeBroadcasts);
 
-      const fetchedNotice = await dbService.getNotice();
       let deadline = fetchedNotice.paymentDeadline;
       if (!deadline || new Date(deadline).getTime() <= Date.now()) {
         const futureDate = new Date(Date.now() + 5 * 24 * 60 * 60 * 1000 + 4 * 60 * 60 * 1000);
@@ -152,8 +221,6 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
       }
       setPaymentDeadline(deadline);
 
-      // Managers list
-      const fetchedManagers = await dbService.getManagers();
       setManagers(fetchedManagers);
       const currentMonth = new Date().toLocaleDateString("en-US", { month: "long", year: "numeric" });
       const hasCurrentMonth = fetchedManagers.some(m => m.month === currentMonth);
@@ -165,7 +232,6 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
 
       // Check database and local storage for prior votes (FUNC-05)
       if (studentId) {
-        const voted = await dbService.hasVoted(formattedDate, studentId);
         if (voted) {
           setHasVoted({ like: true, love: true, angry: true });
         }
@@ -1077,7 +1143,7 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
                   <div className="absolute right-0 top-0 w-60 h-60 rounded-full bg-emerald-500/[0.02] filter blur-2xl pointer-events-none" />
                   <div className="w-24 h-24 sm:w-28 sm:h-28 rounded-full overflow-hidden border-2 border-primary shadow-[0_0_15px_rgba(var(--primary),0.15)] shrink-0 self-center">
                     <img 
-                      src="https://images.unsplash.com/photo-1566753323558-f4e0952af115?w=300&q=80" 
+                      src={provost?.photoUrl || "https://images.unsplash.com/photo-1566753323558-f4e0952af115?w=300&q=80"} 
                       alt="Provost" 
                       className="w-full h-full object-cover"
                     />
@@ -1087,15 +1153,15 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
                       {lang === "en" ? "Hall Provost Office" : "হল প্রভোস্ট কার্যালয়"}
                     </span>
                     <h3 className="font-serif text-2xl sm:text-3xl font-bold text-foreground mt-1">
-                      {lang === "en" ? "Prof. Dr. Rafiqul Islam" : "অধ্যাপক ড. রফিকুল ইসলাম"}
+                      {provost?.name || (lang === "en" ? "Dr. Md. Ashiqur Rahman" : "ড. মো. আশিকুর রহমান")}
                     </h3>
                     <p className="text-xs sm:text-sm text-foreground/50 mt-1 font-semibold">
-                      {lang === "en" ? "Professor, Civil Engineering department · BUET" : "অধ্যাপক, পুরকৌশল বিভাগ · বুয়েট"}
+                      {provost?.dept || (lang === "en" ? "Professor, Department of Mechanical Engineering · Provost, Sher-E-Bangla Hall, BUET" : "অধ্যাপক, যন্ত্রকৌশল বিভাগ · প্রভোস্ট, শেরে বাংলা হল, বুয়েট")}
                     </p>
                     <p className="max-w-[560px] text-xs sm:text-sm text-foreground/60 mt-4 leading-relaxed">
-                      {lang === "en" 
-                        ? "Dr. Islam has been serving as provost since 2021. His commitment to student welfare and transparent governance has significantly improved hall dining mess operations."
-                        : "অধ্যাপক ড. রফিকুল ইসলাম ২০২১ সাল থেকে শেরে বাংলা হলের প্রভোস্ট হিসেবে দায়িত্বে আছেন। হলের আবাসিক ছাত্রদের কল্যাণ এবং ডাইনিং ব্যবস্থাপনায় স্বচ্ছতা আনতে তার গৃহীত পদক্ষেপ সমূহ প্রশংসনীয়।"}
+                      {provost?.bio || (lang === "en" 
+                        ? "Associate Director, Directorate of Student Welfare (Former). Email: ashiqurrahman@me.buet.ac.bd · ashiqur78@yahoo.com"
+                        : "ashiqurrahman@me.buet.ac.bd · ashiqur78@yahoo.com")}
                     </p>
                   </div>
                 </div>
@@ -1218,6 +1284,156 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
                       </div>
                     )}
                   </div>
+                </div>
+
+                {/* System Developer Profile Card */}
+                <div className="p-6 sm:p-10 rounded-3xl bg-gradient-to-br from-primary/15 via-white/[0.01] to-transparent border border-primary/20 flex flex-col md:flex-row items-center gap-6 sm:gap-8 mt-10 relative overflow-hidden shadow-xl hover:border-primary/45 transition-all duration-300">
+                  <div className="absolute right-0 top-0 px-3 py-1.5 bg-primary/10 rounded-bl-2xl text-[9px] font-bold uppercase tracking-wider text-primary border-l border-b border-primary/10">
+                    {lang === "en" ? "System Developer" : "সিস্টেম ডেভেলপার"}
+                  </div>
+                  <div className="absolute right-0 top-0 w-60 h-60 rounded-full bg-primary/[0.02] filter blur-2xl pointer-events-none" />
+                  <div className="w-24 h-24 sm:w-28 sm:h-28 rounded-2xl overflow-hidden border border-white/10 shrink-0 self-center">
+                    <img 
+                      src={developerPhoto || "https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=200&h=200&fit=crop"} 
+                      alt="MISHAT MILON" 
+                      className="w-full h-full object-cover"
+                    />
+                  </div>
+                  <div className="flex-1 text-center md:text-left">
+                    <span className="text-[10px] font-bold uppercase tracking-wider text-primary">
+                      {lang === "en" ? "Platform Creator" : "প্ল্যাটফর্ম নির্মাতা"}
+                    </span>
+                    <h3 className="font-serif text-2xl sm:text-3xl font-bold text-foreground mt-1">
+                      MISHAT MILON
+                    </h3>
+                    <div className="text-xs text-foreground/50 mt-1.5 font-mono space-x-2 flex flex-wrap justify-center md:justify-start gap-y-1">
+                      <span>DEPT: EEE</span>
+                      <span>•</span>
+                      <span>ROOM: 207</span>
+                      <span>•</span>
+                      <span>ID: 2106059</span>
+                    </div>
+                    <p className="max-w-[560px] text-xs sm:text-sm text-foreground/60 mt-4 leading-relaxed italic border-l border-primary/30 pl-3 inline-block text-left">
+                      {lang === "en" 
+                        ? '"Architected, designed, and developed the HMMS platform."' 
+                        : '"এইচএমএমএস প্ল্যাটফর্মের আর্কিটেক্ট, ডিজাইনার এবং ডেভেলপার।"'}
+                    </p>
+                  </div>
+                </div>
+              </section>
+            )}
+
+            {/* ==========================================
+                7. COMPLAINTS DESK TAB (STUDENTS)
+                ========================================== */}
+            {activeTab === "complaints" && (
+              <section className="pt-10 max-w-2xl mx-auto">
+                <div className="text-center mb-12">
+                  <div className="section-tag flex items-center justify-center gap-2 text-[10px] font-bold uppercase tracking-wider text-primary mb-3">
+                    <span className="w-6 h-[1px] bg-primary"></span>
+                    {lang === "en" ? "Resident Support Desk" : "আবাসিক অভিযোগ শাখা"}
+                    <span className="w-6 h-[1px] bg-primary"></span>
+                  </div>
+                  <h2 className="font-serif text-3xl sm:text-4xl font-bold text-foreground">
+                    {lang === "en" ? "Complaints " : "অভিযোগ "} 
+                    <em className="font-serif italic text-primary not-italic">{lang === "en" ? "Desk" : "ডেস্ক"}</em>
+                  </h2>
+                  <p className="text-xs text-foreground/50 mt-2">
+                    {lang === "en" 
+                      ? "Submit dining or hall mess complaints directly to managers. You may optionally remain anonymous." 
+                      : "মেস ও ডাইনিং সংক্রান্ত যেকোনো অভিযোগ সরাসরি ম্যানেজারদের কাছে পাঠান। চাইলে নাম প্রকাশ নাও করতে পারেন।"}
+                  </p>
+                </div>
+
+                <div className="p-6 sm:p-8 rounded-3xl bg-white/[0.02] border border-white/5 shadow-xl space-y-6">
+                  <form onSubmit={handleStudentComplaintSubmit} className="space-y-4">
+                    <div>
+                      <label className="block text-[10px] font-bold uppercase text-primary tracking-wide mb-1.5">
+                        {lang === "en" ? "Issue Category" : "অভিযোগের বিষয়"}
+                      </label>
+                      <select
+                        value={complaintCategory}
+                        onChange={(e) => setComplaintCategory(e.target.value)}
+                        className="w-full px-4 py-3 bg-white/[0.04] border border-white/10 rounded-xl text-xs font-semibold focus:outline-none focus:border-primary/50 text-foreground"
+                      >
+                        <option value="Food Quality" className="bg-background text-foreground">{lang === "en" ? "Food Quality" : "খাবারের মান"}</option>
+                        <option value="Hygiene & Sanitation" className="bg-background text-foreground">{lang === "en" ? "Hygiene & Sanitation" : "পরিচ্ছন্নতা ও স্যানিটেশন"}</option>
+                        <option value="Meal Distribution / Delay" className="bg-background text-foreground">{lang === "en" ? "Meal Distribution / Delay" : "খাবার বিতরণ / দেরি"}</option>
+                        <option value="Token & Payments" className="bg-background text-foreground">{lang === "en" ? "Token & Payments" : "টোকেন ও পেমেন্ট"}</option>
+                        <option value="Other Issues" className="bg-background text-foreground">{lang === "en" ? "Other Issues" : "অন্যান্য সমস্যা"}</option>
+                      </select>
+                    </div>
+
+                    <div className="grid gap-4 sm:grid-cols-3">
+                      <div>
+                        <label className="block text-[10px] font-bold uppercase text-foreground/50 tracking-wide mb-1.5">
+                          {lang === "en" ? "Your Name (Optional)" : "আপনার নাম (ঐচ্ছিক)"}
+                        </label>
+                        <input
+                          type="text"
+                          value={complaintName}
+                          onChange={(e) => setComplaintName(e.target.value)}
+                          placeholder={lang === "en" ? "e.g. Sajib" : "যেমন: সজীব"}
+                          className="w-full px-4 py-3 bg-white/[0.04] border border-white/10 rounded-xl text-xs focus:outline-none focus:border-primary/50 text-foreground"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-[10px] font-bold uppercase text-foreground/50 tracking-wide mb-1.5">
+                          {lang === "en" ? "Room No (Optional)" : "রুম নং (ঐচ্ছিক)"}
+                        </label>
+                        <input
+                          type="text"
+                          value={complaintRoom}
+                          onChange={(e) => setComplaintRoom(e.target.value)}
+                          placeholder="e.g. 308"
+                          className="w-full px-4 py-3 bg-white/[0.04] border border-white/10 rounded-xl text-xs focus:outline-none focus:border-primary/50 text-foreground"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-[10px] font-bold uppercase text-foreground/50 tracking-wide mb-1.5">
+                          {lang === "en" ? "Batch (Optional)" : "ব্যাচ (ঐচ্ছিক)"}
+                        </label>
+                        <input
+                          type="text"
+                          value={complaintBatch}
+                          onChange={(e) => setComplaintBatch(e.target.value)}
+                          placeholder="e.g. 21"
+                          className="w-full px-4 py-3 bg-white/[0.04] border border-white/10 rounded-xl text-xs focus:outline-none focus:border-primary/50 text-foreground"
+                        />
+                      </div>
+                    </div>
+
+                    <div>
+                      <label className="block text-[10px] font-bold uppercase text-primary tracking-wide mb-1.5">
+                        {lang === "en" ? "Complaint Description" : "অভিযোগের বিস্তারিত বিবরণ"}
+                      </label>
+                      <textarea
+                        value={complaintDesc}
+                        onChange={(e) => setComplaintDesc(e.target.value)}
+                        placeholder={lang === "en" ? "Describe the issue in detail..." : "সমস্যাটি বিস্তারিতভাবে লিখুন..."}
+                        rows={5}
+                        className="w-full px-4 py-3 bg-white/[0.04] border border-white/10 rounded-xl text-xs focus:outline-none focus:border-primary/50 text-foreground leading-relaxed resize-none"
+                        required
+                      />
+                    </div>
+
+                    <div className="flex justify-end pt-2">
+                      <button
+                        type="submit"
+                        disabled={submittingComplaint}
+                        className="flex items-center gap-2 px-6 py-3 bg-primary text-background rounded-xl text-xs font-bold uppercase tracking-wider hover:scale-102 hover:shadow-lg hover:shadow-primary/10 transition-all disabled:opacity-50"
+                      >
+                        {submittingComplaint ? (
+                          lang === "en" ? "Submitting..." : "জমা হচ্ছে..."
+                        ) : (
+                          <>
+                            <Send size={12} />
+                            {lang === "en" ? "Submit Complaint" : "অভিযোগ জমা দিন"}
+                          </>
+                        )}
+                      </button>
+                    </div>
+                  </form>
                 </div>
               </section>
             )}

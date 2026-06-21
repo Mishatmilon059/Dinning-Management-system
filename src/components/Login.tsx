@@ -159,29 +159,6 @@ export const Login: React.FC<LoginProps> = ({ onLoginSuccess, addToast }) => {
     setManagers(updated);
   };
 
-  const handleStudentDemoFill = () => {
-    setStudentEmail("206059@eee.buet.ac.bd");
-    addToast("Filled demo BUET email address.", "info");
-  };
-
-  const handleManagerLoginDemoFill = () => {
-    setTeamName("Team Delta");
-    setPassword("123456");
-    addToast("Filled demo manager login credentials.", "info");
-  };
-
-  const handleManagerSignupDemoFill = () => {
-    setSignupTeamName("Team Delta");
-    setSignupPassword("123456");
-    setSignupConfirmPassword("123456");
-    setManagers([
-      { name: "Sajib Hasan", id: "2060059", room: "302", dept: "EEE", mobile: "01711223344", photoUrl: "https://images.unsplash.com/photo-1539571696357-5a69c17a67c6?w=200&h=200&fit=crop" },
-      { name: "Fahim Rahman", id: "2060060", room: "115", dept: "CSE", mobile: "01822334455", photoUrl: "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=200&h=200&fit=crop" },
-      { name: "Naimul Islam", id: "2060061", room: "204", dept: "ME", mobile: "01933445566", photoUrl: "https://images.unsplash.com/photo-1500648767791-00dcc994a43e?w=200&h=200&fit=crop" }
-    ]);
-    setExpandedManager(0);
-    addToast("Demo team register data pre-filled!", "info");
-  };
 
   return (
     <div className="min-h-[85vh] flex items-center justify-center py-12 px-4 sm:px-6 lg:px-8 bg-transparent">
@@ -242,13 +219,6 @@ export const Login: React.FC<LoginProps> = ({ onLoginSuccess, addToast }) => {
             <div>
               <div className="flex justify-between items-center mb-1">
                 <label className="block text-xs font-bold uppercase text-foreground/55 tracking-wider">BUET Mail Address</label>
-                <button
-                  type="button"
-                  onClick={handleStudentDemoFill}
-                  className="text-[11px] text-primary hover:underline font-bold"
-                >
-                  (Demo Fill)
-                </button>
               </div>
               <div className="relative">
                 <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-foreground/30">
@@ -289,13 +259,6 @@ export const Login: React.FC<LoginProps> = ({ onLoginSuccess, addToast }) => {
                 <div>
                   <div className="flex justify-between items-center mb-1">
                     <label className="block text-xs font-bold uppercase text-foreground/55 tracking-wider">Manager Team Name</label>
-                    <button
-                      type="button"
-                      onClick={handleManagerLoginDemoFill}
-                      className="text-[11px] text-primary hover:underline font-bold"
-                    >
-                      (Demo Fill)
-                    </button>
                   </div>
                   <div className="relative">
                     <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-foreground/30">
@@ -361,13 +324,6 @@ export const Login: React.FC<LoginProps> = ({ onLoginSuccess, addToast }) => {
                 <div className="bg-white/[0.01] border border-white/5 rounded-2xl p-4 space-y-3">
                   <div className="flex justify-between items-center">
                     <h3 className="text-sm font-bold text-primary uppercase tracking-wide">Manager Team Setup</h3>
-                    <button
-                      type="button"
-                      onClick={handleManagerSignupDemoFill}
-                      className="text-[11px] text-primary hover:underline font-bold"
-                    >
-                      (Demo Fill)
-                    </button>
                   </div>
                   
                   <div>

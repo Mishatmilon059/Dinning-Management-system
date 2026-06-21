@@ -30,3 +30,12 @@ dist-ssr
 
 
 .vercel
+
+# Helper scripts containing Vercel secrets
+add-env-vercel.js
+add-vercel-env.ps1
+add_env_vercel.py
+check-db.js
+run-env-spawn.js
+run-env.bat
+run-env.ps1

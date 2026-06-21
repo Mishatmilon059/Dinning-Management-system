@@ -14,6 +14,7 @@ export interface ManagerProfile {
   month: string;
   bio: string;
   photoUrl: string;
+  role?: string;
 }
 
 export interface TeamManagerInfo {
@@ -96,6 +97,13 @@ export interface Contact {
   introduction?: string;
 }
 
+export interface ProvostProfile {
+  name: string;
+  dept: string;
+  bio: string;
+  photoUrl: string;
+}
+
 export interface Complaint {
   id: string;
   category: string;
@@ -103,7 +111,11 @@ export interface Complaint {
   severity: "low" | "medium" | "high";
   description: string;
   endorsingManagers: string[]; // List of manager IDs
-  status: "draft" | "submitted";
+  status: "draft" | "submitted" | "pending" | "resolved";
+  studentName?: string;
+  studentRoom?: string;
+  studentBatch?: string;
+  actionTaken?: string;
 }
 
 export interface Broadcast {
@@ -129,35 +141,7 @@ export interface PaginatedResult<T> {
 }
 
 // Initial Mock Seed Data
-const INITIAL_MANAGERS: Record<string, ManagerProfile> = {
-  "2012001": {
-    id: "2012001",
-    name: "Sakib Al Hasan",
-    dept: "CSE",
-    room: "302",
-    month: "May 2026",
-    bio: "Passionate about streamlining processes. Let's make dining operations transparent and efficient!",
-    photoUrl: "https://images.unsplash.com/photo-1539571696357-5a69c17a67c6?w=200&h=200&fit=crop",
-  },
-  "2012002": {
-    id: "2012002",
-    name: "Tariqul Islam",
-    dept: "EEE",
-    room: "208",
-    month: "May 2026",
-    bio: "Avid cook and tech enthusiast. I look forward to managing the mess this month and hearing your feedback.",
-    photoUrl: "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=200&h=200&fit=crop",
-  },
-  "2010045": {
-    id: "2010045",
-    name: "Naimur Rahman",
-    dept: "ME",
-    room: "415",
-    month: "April 2026",
-    bio: "Managed the mess in April. Focused on high protein diets and minimal wastage.",
-    photoUrl: "https://images.unsplash.com/photo-1500648767791-00dcc994a43e?w=200&h=200&fit=crop",
-  }
-};
+const INITIAL_MANAGERS: Record<string, ManagerProfile> = {};
 
 const INITIAL_INVENTORY: InventoryItem[] = [
   { id: "1", name: "Rice (Miniket)", quantity: 150, unit: "kg", usageRate: 25, finishDate: "2026-06-01" },
@@ -226,6 +210,10 @@ const saveMockData = (key: string, data: unknown) => {
 class DbService {
   // Caching layer properties (SCALE-02)
   private cache: Record<string, { data: any; timestamp: number }> = {};
+
+  private sanitizeManagerId(managerId: string): string {
+    return managerId.trim().toLowerCase().replace(/\s+/g, "_");
+  }
 
   private getCached<T>(key: string, ttl = 60000): T | null {
     const cached = this.cache[key];
@@ -333,6 +321,22 @@ class DbService {
     await this.logAction("UPDATE_PROFILE", { id, ...data });
   }
 
+  async deleteManagerProfile(id: string): Promise<void> {
+    if (isFirebaseEnabled && db) {
+      const docRef = doc(db, "managers", id);
+      await deleteDoc(docRef);
+    } else {
+      const managers = getMockData<Record<string, ManagerProfile>>("managers", INITIAL_MANAGERS);
+      if (managers[id]) {
+        delete managers[id];
+        saveMockData("managers", managers);
+      }
+    }
+    this.clearCache("managers_list");
+    this.clearCache(`manager_profile_${id}`);
+    await this.logAction("DELETE_PROFILE", { id });
+  }
+
   // --- MANAGER TEAMS (V1) ---
   async getTeamProfile(teamName: string): Promise<ManagerTeam | null> {
     const key = teamName.toLowerCase();
@@ -394,42 +398,45 @@ class DbService {
 
   // --- CASH COLLECTION ---
   async getCashCollection(managerId: string): Promise<number> {
+    const sId = this.sanitizeManagerId(managerId);
     if (isFirebaseEnabled && db) {
-      const docRef = doc(db, "cashCollection", managerId);
+      const docRef = doc(db, "cashCollection", sId);
       const snap = await getDoc(docRef);
       return snap.exists() ? snap.data().amount : 0;
     } else {
       const cash = getMockData("cashCollection", {} as Record<string, number>);
-      return cash[managerId] || 0;
+      return cash[sId] || 0;
     }
   }
 
   async setCashCollection(managerId: string, amount: number): Promise<void> {
+    const sId = this.sanitizeManagerId(managerId);
     if (isFirebaseEnabled && db) {
-      const docRef = doc(db, "cashCollection", managerId);
+      const docRef = doc(db, "cashCollection", sId);
       await setDoc(docRef, { amount });
     } else {
       const cash = getMockData("cashCollection", {} as Record<string, number>);
-      cash[managerId] = amount;
+      cash[sId] = amount;
       saveMockData("cashCollection", cash);
     }
-    await this.logAction("SET_CASH", { managerId, amount });
+    await this.logAction("SET_CASH", { managerId: sId, amount });
   }
 
   // --- EXPENSES ---
   async getExpenses(managerId: string, date?: string): Promise<DayExpenses[]> {
+    const sId = this.sanitizeManagerId(managerId);
     if (isFirebaseEnabled && db) {
       if (date) {
-        const docRef = doc(db, "expenses", managerId, "days", date);
+        const docRef = doc(db, "expenses", sId, "days", date);
         const snap = await getDoc(docRef);
         return snap.exists() ? [snap.data() as DayExpenses] : [];
       } else {
-        const q = collection(db, "expenses", managerId, "days");
+        const q = collection(db, "expenses", sId, "days");
         const snap = await getDocs(q);
         return snap.docs.map(d => d.data() as DayExpenses);
       }
     } else {
-      const key = `expenses_${managerId}`;
+      const key = `expenses_${sId}`;
       const expenses = getMockData<Record<string, DayExpenses>>(key, {});
       if (date) {
         return expenses[date] ? [expenses[date]] : [];
@@ -440,9 +447,10 @@ class DbService {
 
   // Cursor-based paginated past expenses (SCALE-01)
   async getExpensesPaginated(managerId: string, pageSize = 20, lastDocCursor: any = null): Promise<PaginatedResult<DayExpenses>> {
+    const sId = this.sanitizeManagerId(managerId);
     if (isFirebaseEnabled && db) {
       let q = query(
-        collection(db, "expenses", managerId, "days"),
+        collection(db, "expenses", sId, "days"),
         orderBy("date", "desc"),
         limit(pageSize)
       );
@@ -455,7 +463,7 @@ class DbService {
       const hasMore = snap.docs.length === pageSize;
       return { items, lastDoc, hasMore };
     } else {
-      const key = `expenses_${managerId}`;
+      const key = `expenses_${sId}`;
       const expensesMap = getMockData<Record<string, DayExpenses>>(key, {});
       const sorted = Object.values(expensesMap).sort((a, b) => b.date.localeCompare(a.date));
       const startIndex = typeof lastDocCursor === "number" ? lastDocCursor : 0;
@@ -470,6 +478,7 @@ class DbService {
   }
 
   async saveDayExpenses(managerId: string, date: string, items: ExpenseItem[], isLocked = false): Promise<void> {
+    const sId = this.sanitizeManagerId(managerId);
     // Recompute totals inside the service layer (FUNC-02)
     const sanitizedItems = items.map(item => ({
       ...item,
@@ -480,10 +489,10 @@ class DbService {
     const dayData: DayExpenses = { date, items: sanitizedItems, total, isLocked };
 
     if (isFirebaseEnabled && db) {
-      const docRef = doc(db, "expenses", managerId, "days", date);
+      const docRef = doc(db, "expenses", sId, "days", date);
       await setDoc(docRef, dayData);
     } else {
-      const key = `expenses_${managerId}`;
+      const key = `expenses_${sId}`;
       const expenses = getMockData<Record<string, DayExpenses>>(key, {});
       expenses[date] = dayData;
       saveMockData(key, expenses);
@@ -529,17 +538,18 @@ class DbService {
 
   // --- INVENTORY ---
   async getInventory(managerId: string): Promise<InventoryItem[]> {
-    const cacheKey = `inventory_${managerId}`;
+    const sId = this.sanitizeManagerId(managerId);
+    const cacheKey = `inventory_${sId}`;
     const cached = this.getCached<InventoryItem[]>(cacheKey);
     if (cached) return cached;
 
     let result: InventoryItem[];
     if (isFirebaseEnabled && db) {
-      const q = collection(db, "inventory", managerId, "items");
+      const q = collection(db, "inventory", sId, "items");
       const snap = await getDocs(q);
       result = snap.docs.map(d => d.data() as InventoryItem);
     } else {
-      const key = `inventory_${managerId}`;
+      const key = `inventory_${sId}`;
       result = getMockData<InventoryItem[]>(key, INITIAL_INVENTORY);
     }
     this.setCache(cacheKey, result);
@@ -547,11 +557,12 @@ class DbService {
   }
 
   async updateInventoryItem(managerId: string, item: InventoryItem): Promise<void> {
+    const sId = this.sanitizeManagerId(managerId);
     if (isFirebaseEnabled && db) {
-      const docRef = doc(db, "inventory", managerId, "items", item.id);
+      const docRef = doc(db, "inventory", sId, "items", item.id);
       await setDoc(docRef, item);
     } else {
-      const key = `inventory_${managerId}`;
+      const key = `inventory_${sId}`;
       const inv = getMockData<InventoryItem[]>(key, INITIAL_INVENTORY);
       const index = inv.findIndex(i => i.id === item.id);
       if (index > -1) {
@@ -561,7 +572,7 @@ class DbService {
       }
       saveMockData(key, inv);
     }
-    this.clearCache(`inventory_${managerId}`);
+    this.clearCache(`inventory_${sId}`);
     await this.logAction("UPDATE_INVENTORY", item);
   }
 
@@ -905,23 +916,25 @@ class DbService {
 
   // --- PAYMENTS (DATA-03) ---
   async getPayments(managerId: string): Promise<{ id: string; name: string; date: string }[]> {
+    const sId = this.sanitizeManagerId(managerId);
     if (isFirebaseEnabled && db) {
-      const docRef = doc(db, "payments", managerId);
+      const docRef = doc(db, "payments", sId);
       const snap = await getDoc(docRef);
       return snap.exists() ? (snap.data().paidStudentIds as { id: string; name: string; date: string }[]) : [];
     } else {
-      return getMockData<{ id: string; name: string; date: string }[]>(`payments_${managerId}`, []);
+      return getMockData<{ id: string; name: string; date: string }[]>(`payments_${sId}`, []);
     }
   }
 
   async savePayments(managerId: string, paidStudentIds: { id: string; name: string; date: string }[]): Promise<void> {
+    const sId = this.sanitizeManagerId(managerId);
     if (isFirebaseEnabled && db) {
-      const docRef = doc(db, "payments", managerId);
+      const docRef = doc(db, "payments", sId);
       await setDoc(docRef, { paidStudentIds });
     } else {
-      saveMockData(`payments_${managerId}`, paidStudentIds);
+      saveMockData(`payments_${sId}`, paidStudentIds);
     }
-    await this.logAction("SAVE_PAYMENTS", { managerId, count: paidStudentIds.length });
+    await this.logAction("SAVE_PAYMENTS", { managerId: sId, count: paidStudentIds.length });
   }
 
   // --- GALLERY ---
@@ -981,7 +994,68 @@ class DbService {
     this.clearCache("gallery_list_true");
     await this.logAction("DELETE_GALLERY_ITEM", { id });
   }
+
+  // --- PROVOST ---
+  async getProvostProfile(): Promise<ProvostProfile> {
+    const defaultProvost: ProvostProfile = {
+      name: "Dr. Md. Ashiqur Rahman",
+      dept: "Professor, Department of Mechanical Engineering · Provost, Sher-E-Bangla Hall, BUET",
+      bio: "Associate Director, Directorate of Student Welfare (Former). Email: ashiqurrahman@me.buet.ac.bd · ashiqur78@yahoo.com",
+      photoUrl: "data:image/png;base64,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"
+    };
+
+    if (isFirebaseEnabled && db) {
+      try {
+        const docRef = doc(db, "notices", "provost");
+        const snap = await getDoc(docRef);
+        return snap.exists() ? (snap.data() as ProvostProfile) : defaultProvost;
+      } catch (err) {
+        console.error("Failed to fetch provost profile from Firestore:", err);
+        return defaultProvost;
+      }
+    } else {
+      return getMockData<ProvostProfile>("provost_profile", defaultProvost);
+    }
+  }
+
+  async updateProvostProfile(data: ProvostProfile): Promise<void> {
+    if (isFirebaseEnabled && db) {
+      const docRef = doc(db, "notices", "provost");
+      await setDoc(docRef, data);
+    } else {
+      saveMockData("provost_profile", data);
+    }
+    await this.logAction("UPDATE_PROVOST_PROFILE", data);
+  }
+
+  // --- DEVELOPER ---
+  async getDeveloperPhoto(): Promise<string> {
+    const defaultPhoto = "https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=200&h=200&fit=crop";
+    if (isFirebaseEnabled && db) {
+      try {
+        const docRef = doc(db, "notices", "developer");
+        const snap = await getDoc(docRef);
+        return snap.exists() ? snap.data().photoUrl : defaultPhoto;
+      } catch (err) {
+        console.error("Failed to fetch developer photo:", err);
+        return defaultPhoto;
+      }
+    } else {
+      return getMockData<string>("developer_photo", defaultPhoto);
+    }
+  }
+
+  async updateDeveloperPhoto(photoUrl: string): Promise<void> {
+    if (isFirebaseEnabled && db) {
+      const docRef = doc(db, "notices", "developer");
+      await setDoc(docRef, { photoUrl });
+    } else {
+      saveMockData("developer_photo", photoUrl);
+    }
+    await this.logAction("UPDATE_DEVELOPER_PHOTO", { photoUrl });
+  }
 }
+
 
 export const dbService = new DbService();
 export default dbService;

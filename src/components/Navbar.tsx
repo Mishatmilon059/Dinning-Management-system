@@ -3,13 +3,15 @@ import { Link, useNavigate, useLocation } from "react-router-dom";
 import { LogOut, Menu, X, Shield } from "lucide-react";
 import type { SessionUser } from "../services/authService";
 
+import { isFirebaseEnabled } from "../firebase/config";
+
 interface NavbarProps {
   currentUser: SessionUser | null;
   onLogout: () => void;
   lang: "en" | "bn";
   setLang: (lang: "en" | "bn") => void;
-  activeTab: "home" | "gallery" | "menu" | "notices" | "contacts" | "managers";
-  setActiveTab: (tab: "home" | "gallery" | "menu" | "notices" | "contacts" | "managers") => void;
+  activeTab: "home" | "gallery" | "menu" | "notices" | "contacts" | "managers" | "complaints";
+  setActiveTab: (tab: "home" | "gallery" | "menu" | "notices" | "contacts" | "managers" | "complaints") => void;
 }
 
 export const Navbar: React.FC<NavbarProps> = ({
@@ -45,6 +47,7 @@ export const Navbar: React.FC<NavbarProps> = ({
     { id: "notices", en: "Notices", bn: "নোটিশ" },
     { id: "contacts", en: "Contacts", bn: "যোগাযোগ" },
     { id: "managers", en: "Managers", bn: "ম্যানেজার" },
+    { id: "complaints", en: "Complaints", bn: "অভিযোগ" },
     { id: "gallery", en: "Gallery", bn: "গ্যালারি" },
   ] as const;
 
@@ -56,8 +59,12 @@ export const Navbar: React.FC<NavbarProps> = ({
           শ
         </div>
         <div>
-          <div className="font-serif text-base font-bold text-foreground leading-tight">
+          <div className="font-serif text-base font-bold text-foreground leading-tight flex items-center gap-2">
             {lang === "en" ? "HMMS" : "এইচএমএমএস"}
+            <span 
+              className={`inline-block w-2.5 h-2.5 rounded-full ${isFirebaseEnabled ? 'bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.75)] animate-pulse' : 'bg-rose-500 shadow-[0_0_8px_rgba(244,63,94,0.75)]'}`} 
+              title={isFirebaseEnabled ? 'Live Database Connected' : 'Offline Mock Mode'} 
+            />
           </div>
           <div className="text-[10px] text-primary font-bold uppercase tracking-wider">
             {lang === "en" ? "Sher-E-Bangla Hall" : "শেরে বাংলা হল"}

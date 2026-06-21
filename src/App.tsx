@@ -25,7 +25,7 @@ export const App: React.FC = () => {
   const [currentUser, setCurrentUser] = useState<SessionUser | null>(() => authService.getCurrentUser());
   const [toasts, setToasts] = useState<ToastMessage[]>([]);
   const [lang, setLang] = useState<"en" | "bn">("en");
-  const [activeTab, setActiveTab] = useState<"home" | "gallery" | "menu" | "notices" | "contacts" | "managers">("home");
+  const [activeTab, setActiveTab] = useState<"home" | "gallery" | "menu" | "notices" | "contacts" | "managers" | "complaints">("home");
 
   useEffect(() => {
     applyTheme();

@@ -10,7 +10,7 @@ import { authService } from "../../services/authService";
 import type { SessionUser } from "../../services/authService";
 import { generateLedgerPdf } from "../../utils/pdfGenerator";
 import { isFirebaseEnabled, storage } from "../../firebase/config";
-import { ref, uploadBytes, getDownloadURL } from "firebase/storage";
+import { ref, getDownloadURL, deleteObject, uploadBytesResumable } from "firebase/storage";
 
 interface ManagerPortalProps {
   currentUser: SessionUser | null;
@@ -21,6 +21,59 @@ interface ManagerPortalProps {
 export const ManagerPortal: React.FC<ManagerPortalProps> = ({ currentUser, addToast, onProfileUpdated }) => {
   const managerId = currentUser?.id || "2012001";
   
+  const deleteOldStoragePhoto = async (photoUrl: string) => {
+    if (!photoUrl || !isFirebaseEnabled || !storage) return;
+    if (photoUrl.includes("firebasestorage.googleapis.com")) {
+      try {
+        const fileRef = ref(storage, photoUrl);
+        await deleteObject(fileRef);
+        console.log("Successfully deleted old photo from storage:", photoUrl);
+      } catch (err) {
+        console.error("Error deleting old photo from storage:", err);
+      }
+    }
+  };
+
+  const uploadFileWithTimeout = (storageRef: any, file: File, timeoutMs = 25000): Promise<string> => {
+    return new Promise((resolve, reject) => {
+      const uploadTask = uploadBytesResumable(storageRef, file);
+      
+      const timeoutId = setTimeout(() => {
+        uploadTask.cancel();
+        reject(new Error(`Upload timed out after ${timeoutMs / 1000} seconds.`));
+      }, timeoutMs);
+
+      uploadTask.on(
+        "state_changed",
+        (snapshot) => {
+          const progress = (snapshot.bytesTransferred / snapshot.totalBytes) * 100;
+          console.log(`Upload is ${progress.toFixed(1)}% done`);
+        },
+        (error) => {
+          clearTimeout(timeoutId);
+          reject(error);
+        },
+        async () => {
+          clearTimeout(timeoutId);
+          try {
+            const downloadUrl = await getDownloadURL(uploadTask.snapshot.ref);
+            resolve(downloadUrl);
+          } catch (err) {
+            reject(err);
+          }
+        }
+      );
+    });
+  };
+
+  // Helper staff states
+  const [helpers, setHelpers] = useState<ManagerProfile[]>([]);
+  const [helperForm, setHelperForm] = useState({ name: "", room: "" });
+  const [helperFile, setHelperFile] = useState<File | null>(null);
+  const [addingHelper, setAddingHelper] = useState(false);
+  const [uploadingHelperPhoto, setUploadingHelperPhoto] = useState(false);
+  const [uploadingIdx, setUploadingIdx] = useState<number>(-1);
+
   const [activeSubTab, setActiveSubTab] = useState<"ledger" | "menu" | "inventory" | "payments" | "analytics" | "complaints" | "profile" | "admin">("ledger");
 
   // Profile setup states
@@ -103,20 +156,13 @@ export const ManagerPortal: React.FC<ManagerPortalProps> = ({ currentUser, addTo
 
   // Complaint states
   const [complaints, setComplaints] = useState<Complaint[]>([]);
-  const [complaintForm, setComplaintForm] = useState<{
-    category: string;
-    severity: "low" | "medium" | "high";
-    description: string;
-  }>({
-    category: "Infrastructure",
-    severity: "medium",
-    description: ""
-  });
+  const [resolvingId, setResolvingId] = useState<string | null>(null);
+  const [actionNote, setActionNote] = useState("");
 
   // Emoji statistics state
   const [reactions, setReactions] = useState<Record<string, number>>({ like: 0, love: 0, angry: 0 });
 
-  const [complaintsPage, setComplaintsPage] = useState(1);
+
 
   // --- Profile Edit states ---
   const [isEditingProfile, setIsEditingProfile] = useState(false);
@@ -139,11 +185,58 @@ export const ManagerPortal: React.FC<ManagerPortalProps> = ({ currentUser, addTo
   const [editingGalleryItem, setEditingGalleryItem] = useState<any | null>(null);
   const [galleryForm, setGalleryForm] = useState({ id: "", name: "", dept: "", batch: "", img: "" });
 
+  // --- Provost Profile Management states ---
+  const [provostName, setProvostName] = useState("");
+  const [provostDept, setProvostDept] = useState("");
+  const [provostBio, setProvostBio] = useState("");
+  const [provostPhotoUrl, setProvostPhotoUrl] = useState("");
+  const [uploadingProvostPhoto, setUploadingProvostPhoto] = useState(false);
+  const [savingProvostProfile, setSavingProvostProfile] = useState(false);
+
+  // --- Developer Photo Management states ---
+  const [developerPhotoUrl, setDeveloperPhotoUrl] = useState("");
+  const [uploadingDeveloperPhoto, setUploadingDeveloperPhoto] = useState(false);
+  const [savingDeveloperPhoto, setSavingDeveloperPhoto] = useState(false);
+
   // Load Initial Data
   useEffect(() => {
     const loadManagerData = async () => {
-      // Profile check
-      const team = await dbService.getTeamProfile(managerId);
+      // Load all data in parallel using Promise.all (PERF-01)
+      const [
+        team,
+        profile,
+        cash,
+        fetchedAllExpenses,
+        menuToday,
+        inv,
+        fetchedNotice,
+        fetchedContacts,
+        fetchedBroadcasts,
+        fetchedGallery,
+        fetchedManagers,
+        fetchComplaints,
+        fetchedReactions,
+        provostProfile,
+        devPhoto
+      ] = await Promise.all([
+        dbService.getTeamProfile(managerId).catch(err => { console.error(err); return null; }),
+        dbService.getManagerProfile(managerId).catch(err => { console.error(err); return null; }),
+        dbService.getCashCollection(managerId).catch(err => { console.error(err); return 0; }),
+        dbService.getExpenses(managerId).catch(err => { console.error(err); return []; }),
+        dbService.getMenu(ledgerDate).catch(err => { console.error(err); return null; }),
+        dbService.getInventory(managerId).catch(err => { console.error(err); return []; }),
+        dbService.getNotice().catch(err => { console.error(err); return { paymentDeadline: "", penaltyText: "" }; }),
+        dbService.getContacts().catch(err => { console.error(err); return []; }),
+        dbService.getBroadcasts().catch(err => { console.error(err); return []; }),
+        dbService.getGalleryItems().catch(err => { console.error(err); return []; }),
+        dbService.getManagers().catch(err => { console.error(err); return []; }),
+        dbService.getComplaints().catch(err => { console.error(err); return []; }),
+        dbService.getReactions(ledgerDate).catch(err => { console.error(err); return { like: 0, love: 0, angry: 0 }; }),
+        dbService.getProvostProfile().catch(err => { console.error(err); return { name: "", dept: "", bio: "", photoUrl: "" }; }),
+        dbService.getDeveloperPhoto().catch(err => { console.error(err); return ""; })
+      ]);
+
+      // Profile setup setup
       if (team) {
         setTeamProfile(team);
         setNeedsSetup(false);
@@ -156,26 +249,21 @@ export const ManagerPortal: React.FC<ManagerPortalProps> = ({ currentUser, addTo
             photoUrl: team.managers[0].photoUrl || ""
           });
         }
-      } else {
-        const profile = await dbService.getManagerProfile(managerId);
-        if (profile && profile.name) {
-          setSetupForm({
-            name: profile.name,
-            dept: profile.dept,
-            room: profile.room,
-            bio: profile.bio,
-            photoUrl: profile.photoUrl
-          });
-          setNeedsSetup(false);
-        }
+      } else if (profile && profile.name) {
+        setSetupForm({
+          name: profile.name,
+          dept: profile.dept,
+          room: profile.room,
+          bio: profile.bio,
+          photoUrl: profile.photoUrl
+        });
+        setNeedsSetup(false);
       }
 
       // Cash Collection & Ledger list
-      const cash = await dbService.getCashCollection(managerId);
       setCashCollected(cash);
       setCashInput(cash > 0 ? cash.toString() : "");
 
-      const fetchedAllExpenses = await dbService.getExpenses(managerId);
       setAllPastExpenses(fetchedAllExpenses);
 
       // Load active day expenses
@@ -188,8 +276,7 @@ export const ManagerPortal: React.FC<ManagerPortalProps> = ({ currentUser, addTo
         setIsLocked(isDateLocked(ledgerDate));
       }
 
-      // Menu
-      const menuToday = await dbService.getMenu(ledgerDate);
+      // Menu Today
       if (menuToday) {
         setMenuForm(menuToday);
       } else {
@@ -197,35 +284,45 @@ export const ManagerPortal: React.FC<ManagerPortalProps> = ({ currentUser, addTo
       }
 
       // Inventory
-      const inv = await dbService.getInventory(managerId);
       setInventory(inv);
       generateAiInventoryInsights(inv);
 
       // Notice details
-      const fetchedNotice = await dbService.getNotice();
       setDeadlineDate(fetchedNotice.paymentDeadline.split("T")[0] || "");
       setDeadlineText(fetchedNotice.paymentDeadline);
       setPenaltyText(fetchedNotice.penaltyText || "");
 
       // Contacts list
-      const fetchedContacts = await dbService.getContacts();
       setContacts(fetchedContacts);
 
       // Broadcasts
-      const fetchedBroadcasts = await dbService.getBroadcasts();
       setBroadcasts(fetchedBroadcasts);
 
       // Gallery Items
-      const fetchedGallery = await dbService.getGalleryItems();
       setGalleryItems(fetchedGallery);
 
+      // Helper staff list
+      const teamHelpers = fetchedManagers.filter(m => m.role === "Helping the managers");
+      setHelpers(teamHelpers);
+
       // Complaints list
-      const fetchComplaints = await dbService.getComplaints();
       setComplaints(fetchComplaints);
 
       // Student reactions
-      const fetchedReactions = await dbService.getReactions(ledgerDate);
       setReactions(fetchedReactions);
+
+      // Provost Profile details
+      if (provostProfile) {
+        setProvostName(provostProfile.name);
+        setProvostDept(provostProfile.dept);
+        setProvostBio(provostProfile.bio);
+        setProvostPhotoUrl(provostProfile.photoUrl);
+      }
+
+      // Developer Photo
+      if (devPhoto) {
+        setDeveloperPhotoUrl(devPhoto);
+      }
     };
 
     loadManagerData();
@@ -322,12 +419,119 @@ export const ManagerPortal: React.FC<ManagerPortalProps> = ({ currentUser, addTo
       }
       
       await dbService.saveTeamProfile(teamProfile!.teamName, updatedTeam);
+      
+      // Clean up old photos from storage if they were replaced
+      if (teamProfile) {
+        for (let i = 0; i < teamProfile.managers.length; i++) {
+          const oldUrl = teamProfile.managers[i].photoUrl;
+          const newUrl = updatedTeam.managers[i].photoUrl;
+          if (oldUrl && newUrl !== oldUrl) {
+            await deleteOldStoragePhoto(oldUrl);
+          }
+        }
+      }
+
       setTeamProfile(updatedTeam);
       setIsEditingProfile(false);
       addToast("Manager team profile updated successfully!", "success");
       onProfileUpdated?.();
     } catch (err) {
       addToast(err instanceof Error ? err.message : "Failed to update profile", "error");
+    }
+  };
+
+  // --- Helper Staff CRUD Handlers ---
+  const handleSaveHelper = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!helperForm.name.trim() || !helperForm.room.trim()) {
+      addToast("Name and Room are required.", "error");
+      return;
+    }
+    if (!helperFile) {
+      addToast("Please upload a profile photo.", "error");
+      return;
+    }
+
+    setAddingHelper(true);
+    try {
+      const helperId = `helper_${Date.now()}`;
+      let finalPhotoUrl = "";
+
+      if (isFirebaseEnabled && storage) {
+        setUploadingHelperPhoto(true);
+        const storageRef = ref(storage, `manager_profiles/helpers/${helperId}_${Date.now()}_${helperFile.name}`);
+        finalPhotoUrl = await uploadFileWithTimeout(storageRef, helperFile);
+        setUploadingHelperPhoto(false);
+      } else {
+        // Read as base64 for mock mode
+        const p = new Promise<string>((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onload = (event) => resolve(event.target?.result as string);
+          reader.onerror = (err) => reject(err);
+          reader.readAsDataURL(helperFile);
+        });
+        finalPhotoUrl = await p;
+      }
+
+      const fetchedManagers = await dbService.getManagers();
+      const activeManager = fetchedManagers.find(m => m.id === managerId);
+      const currentMonth = activeManager?.month || new Date().toLocaleDateString("en-US", { month: "long", year: "numeric" });
+
+      const newHelperProfile: ManagerProfile = {
+        id: helperId,
+        name: helperForm.name.trim(),
+        dept: "", // Helpers do not have a dept
+        room: helperForm.room.trim(),
+        month: currentMonth,
+        bio: "Helping the managers",
+        photoUrl: finalPhotoUrl,
+        role: "Helping the managers"
+      };
+
+      await dbService.updateManagerProfile(helperId, newHelperProfile);
+      addToast("Helper staff added successfully!", "success");
+      
+      // Reset form
+      setHelperForm({ name: "", room: "" });
+      setHelperFile(null);
+      
+      // Clear file inputs on page
+      const fileInputs = document.querySelectorAll('input[type="file"]');
+      fileInputs.forEach(input => {
+        (input as HTMLInputElement).value = "";
+      });
+
+      // Reload helpers
+      const updatedManagers = await dbService.getManagers();
+      const teamHelpers = updatedManagers.filter(m => m.role === "Helping the managers");
+      setHelpers(teamHelpers);
+    } catch (err) {
+      console.error(err);
+      addToast("Failed to save helper profile.", "error");
+    } finally {
+      setAddingHelper(false);
+      setUploadingHelperPhoto(false);
+    }
+  };
+
+  const handleDeleteHelper = async (helperId: string, photoUrl: string) => {
+    if (!window.confirm("Are you sure you want to remove this helper staff member?")) {
+      return;
+    }
+    try {
+      await dbService.deleteManagerProfile(helperId);
+      if (photoUrl) {
+        await deleteOldStoragePhoto(photoUrl);
+      }
+      addToast("Helper staff member removed successfully!", "success");
+      
+      // Reload helpers
+      const fetchedManagers = await dbService.getManagers();
+      const teamHelpers = fetchedManagers.filter(m => m.role === "Helping the managers");
+      setHelpers(teamHelpers);
+    } catch (err) {
+      console.error(err);
+      addToast("Failed to remove helper staff.", "error");
     }
   };
 
@@ -541,9 +745,11 @@ export const ManagerPortal: React.FC<ManagerPortalProps> = ({ currentUser, addTo
 
     try {
       if (isFirebaseEnabled && storage) {
-        const storageRef = ref(storage, `profiles/${managerId}/${Date.now()}_${file.name}`);
-        const snapshot = await uploadBytes(storageRef, file);
-        const downloadUrl = await getDownloadURL(snapshot.ref);
+        if (setupForm.photoUrl) {
+          await deleteOldStoragePhoto(setupForm.photoUrl);
+        }
+        const storageRef = ref(storage, `manager_profiles/${managerId}/${Date.now()}_${file.name}`);
+        const downloadUrl = await uploadFileWithTimeout(storageRef, file);
         setSetupForm(prev => ({ ...prev, photoUrl: downloadUrl }));
         addToast("Profile photo uploaded successfully!", "success");
       } else {
@@ -560,6 +766,113 @@ export const ManagerPortal: React.FC<ManagerPortalProps> = ({ currentUser, addTo
       addToast("Failed to upload profile photo.", "error");
     } finally {
       setUploadingPhoto(false);
+    }
+  };
+
+  const compressImageToDataUrl = (file: File, maxSize = 200, quality = 0.7): Promise<string> => {
+    return new Promise((resolve, reject) => {
+      const img = new Image();
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        img.onload = () => {
+          const canvas = document.createElement("canvas");
+          let w = img.width, h = img.height;
+          if (w > maxSize || h > maxSize) {
+            if (w > h) { h = Math.round(h * maxSize / w); w = maxSize; }
+            else { w = Math.round(w * maxSize / h); h = maxSize; }
+          }
+          canvas.width = w;
+          canvas.height = h;
+          const ctx = canvas.getContext("2d");
+          if (!ctx) { reject(new Error("Canvas context unavailable")); return; }
+          ctx.drawImage(img, 0, 0, w, h);
+          resolve(canvas.toDataURL("image/jpeg", quality));
+        };
+        img.onerror = () => reject(new Error("Failed to load image"));
+        img.src = e.target?.result as string;
+      };
+      reader.onerror = () => reject(new Error("Failed to read file"));
+      reader.readAsDataURL(file);
+    });
+  };
+
+  const handleProvostPhotoChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    if (!file.type.startsWith("image/")) {
+      addToast("Please upload a valid image file.", "error");
+      return;
+    }
+
+    setUploadingProvostPhoto(true);
+
+    try {
+      const dataUrl = await compressImageToDataUrl(file);
+      setProvostPhotoUrl(dataUrl);
+      addToast("Provost photo ready! Click Save to apply.", "success");
+    } catch (err) {
+      console.error(err);
+      addToast("Failed to process provost photo.", "error");
+    } finally {
+      setUploadingProvostPhoto(false);
+    }
+  };
+
+  const handleSaveProvostProfile = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setSavingProvostProfile(true);
+    try {
+      const updatedProfile = {
+        name: provostName,
+        dept: provostDept,
+        bio: provostBio,
+        photoUrl: provostPhotoUrl
+      };
+      await dbService.updateProvostProfile(updatedProfile);
+      addToast("Provost profile updated successfully!", "success");
+    } catch (err) {
+      console.error(err);
+      addToast("Failed to update provost profile.", "error");
+    } finally {
+      setSavingProvostProfile(false);
+    }
+  };
+
+  const handleDeveloperPhotoChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    if (!file.type.startsWith("image/")) {
+      addToast("Please upload a valid image file.", "error");
+      return;
+    }
+
+    setUploadingDeveloperPhoto(true);
+
+    try {
+      const dataUrl = await compressImageToDataUrl(file);
+      setDeveloperPhotoUrl(dataUrl);
+      addToast("Developer photo ready! Click Save to apply.", "success");
+    } catch (err) {
+      console.error(err);
+      addToast("Failed to process developer photo.", "error");
+    } finally {
+      setUploadingDeveloperPhoto(false);
+    }
+  };
+
+  const handleSaveDeveloperPhoto = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setSavingDeveloperPhoto(true);
+    try {
+      await dbService.updateDeveloperPhoto(developerPhotoUrl);
+      addToast("Developer photo updated successfully!", "success");
+    } catch (err) {
+      console.error(err);
+      addToast("Failed to update developer photo.", "error");
+    } finally {
+      setSavingDeveloperPhoto(false);
     }
   };
 
@@ -713,8 +1026,7 @@ export const ManagerPortal: React.FC<ManagerPortalProps> = ({ currentUser, addTo
       try {
         if (isFirebaseEnabled && storage) {
           const storageRef = ref(storage, `menus/${menuDate}/lunch/${Date.now()}_${file.name}`);
-          const snapshot = await uploadBytes(storageRef, file);
-          const downloadUrl = await getDownloadURL(snapshot.ref);
+          const downloadUrl = await uploadFileWithTimeout(storageRef, file);
           newUrls.push(downloadUrl);
         } else {
           const p = new Promise<string>((resolve) => {
@@ -753,8 +1065,7 @@ export const ManagerPortal: React.FC<ManagerPortalProps> = ({ currentUser, addTo
       try {
         if (isFirebaseEnabled && storage) {
           const storageRef = ref(storage, `menus/${menuDate}/dinner/${Date.now()}_${file.name}`);
-          const snapshot = await uploadBytes(storageRef, file);
-          const downloadUrl = await getDownloadURL(snapshot.ref);
+          const downloadUrl = await uploadFileWithTimeout(storageRef, file);
           newUrls.push(downloadUrl);
         } else {
           const p = new Promise<string>((resolve) => {
@@ -822,58 +1133,23 @@ export const ManagerPortal: React.FC<ManagerPortalProps> = ({ currentUser, addTo
 
 
 
-  // Create Complaint
-  const handleCreateComplaint = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!complaintForm.description.trim()) return;
-
-    const newComplaint: Complaint = {
-      id: Math.random().toString(36).substring(2, 9),
-      category: complaintForm.category,
-      date: new Date().toISOString().split("T")[0],
-      severity: complaintForm.severity,
-      description: complaintForm.description,
-      endorsingManagers: [managerId],
-      status: "draft"
-    };
-
-    try {
-      await dbService.saveComplaint(newComplaint);
-      setComplaints(prev => [newComplaint, ...prev]);
-      setComplaintForm({ category: "Infrastructure", severity: "medium", description: "" });
-      addToast("Complaint drafted. Waiting for co-manager endorsements.", "success");
-    } catch {
-      addToast("Failed to draft complaint.", "error");
-    }
-  };
-
-  // Endorse Complaint
-  const handleEndorseComplaint = async (complaintId: string) => {
+  // Resolve Student Complaint
+  const handleResolveComplaint = async (complaintId: string, noteText: string) => {
     const list = [...complaints];
     const item = list.find(c => c.id === complaintId);
     if (item) {
-      if (item.endorsingManagers[0] === managerId) {
-        addToast("You cannot endorse your own complaint.", "error");
-        return;
-      }
-      if (!item.endorsingManagers.includes(managerId)) {
-        item.endorsingManagers.push(managerId);
+      item.status = "resolved";
+      item.actionTaken = noteText.trim() || "Action taken by mess management team.";
+      try {
         await dbService.saveComplaint(item);
         setComplaints(list);
-        addToast("Complaint endorsed successfully!", "success");
+        addToast("Complaint marked as resolved successfully!", "success");
+        setResolvingId(null);
+        setActionNote("");
+      } catch (err) {
+        console.error(err);
+        addToast("Failed to resolve complaint.", "error");
       }
-    }
-  };
-
-  // Submit Complaint to Provost
-  const handleSubmitComplaintToProvost = async (complaintId: string) => {
-    const list = [...complaints];
-    const item = list.find(c => c.id === complaintId);
-    if (item) {
-      item.status = "submitted";
-      await dbService.saveComplaint(item);
-      setComplaints(list);
-      addToast("Complaint submitted formally to the Provost's Office.", "success");
     }
   };
 
@@ -1053,6 +1329,98 @@ export const ManagerPortal: React.FC<ManagerPortalProps> = ({ currentUser, addTo
   const daysInMonthRemaining = 31 - new Date().getDate();
   const averageDailySpend = allPastExpenses.length > 0 ? (totalSpent / allPastExpenses.length) : 0;
   const forecastSurplus = cashCollected - (totalSpent + (averageDailySpend * daysInMonthRemaining));
+
+  // AI Purchasing / Forecasting Analytics
+  const UNIT_PRICES: Record<string, number> = {
+    chal: 65,
+    rice: 65,
+    murgi: 220,
+    chicken: 220,
+    beef: 750,
+    goru: 750,
+    oil: 165,
+    tel: 165,
+    piaj: 70,
+    onion: 70,
+    rosun: 140,
+    garlic: 140,
+    ada: 180,
+    ginger: 180,
+    morich: 150,
+    chili: 150,
+    dim: 12, // per piece
+    egg: 12,
+    potato: 45,
+    aloo: 45,
+  };
+
+  const getUnitPrice = (name: string): number => {
+    const clean = name.toLowerCase().trim();
+    for (const [key, price] of Object.entries(UNIT_PRICES)) {
+      if (clean.includes(key)) return price;
+    }
+    return 100; // fallback unit cost
+  };
+
+  const aiStockForecast = React.useMemo(() => {
+    const refills: { name: string; quantityNeeded: number; unit: string; estimatedCost: number; daysLeft: number }[] = [];
+    const excess: { name: string; daysLeft: number }[] = [];
+    let totalCostEstimate = 0;
+
+    inventory.forEach(item => {
+      const daysLeft = item.usageRate > 0 ? Math.floor(item.quantity / item.usageRate) : 99;
+      if (daysLeft <= 7 && item.usageRate > 0) {
+        const targetQty = item.usageRate * 14; // 14 days safety stock
+        const qtyNeeded = Math.ceil(targetQty - item.quantity);
+        if (qtyNeeded > 0) {
+          const unitPrice = getUnitPrice(item.name);
+          const cost = qtyNeeded * unitPrice;
+          refills.push({
+            name: item.name,
+            quantityNeeded: qtyNeeded,
+            unit: item.unit,
+            estimatedCost: cost,
+            daysLeft: daysLeft
+          });
+          totalCostEstimate += cost;
+        }
+      } else if (daysLeft > 15 && item.usageRate > 0) {
+        excess.push({
+          name: item.name,
+          daysLeft: daysLeft
+        });
+      }
+    });
+
+    return { refills, excess, totalCostEstimate };
+  }, [inventory]);
+
+  const aiOptimizationRecommendations = React.useMemo(() => {
+    const recommendations: string[] = [];
+    
+    // Check surplus forecast
+    if (forecastSurplus < 0) {
+      recommendations.push(`ALERT: The month-end forecast indicates a deficit of ৳${Math.abs(forecastSurplus).toFixed(0)} BDT. We recommend reducing the weekly meat frequency or shifting to high-satisfaction budget meals (e.g., eggs or lentils) to balance the budget.`);
+    } else {
+      recommendations.push("Your current daily spending rate is stable and well within the collected cash collection. Keep maintaining this pace to secure the projected surplus.");
+    }
+
+    // Check inventory stock refill recommendations
+    if (aiStockForecast.refills.length > 0) {
+      const topRefill = aiStockForecast.refills[0];
+      recommendations.push(`STOCK: ${topRefill.name} is running low (${topRefill.daysLeft} days remaining). We suggest placing a replenishment order of ${topRefill.quantityNeeded} ${topRefill.unit} soon to prevent a dinner interruption.`);
+    }
+
+    // Check excess inventory stock
+    if (aiStockForecast.excess.length > 0) {
+      const topExcess = aiStockForecast.excess[0];
+      recommendations.push(`UTILITY: You have ample stocks of ${topExcess.name} (lasts ${topExcess.daysLeft} days). Consider utilizing this item more in the next few meals before ordering fresh replacements.`);
+    } else {
+      recommendations.push("Your inventory stock distribution is balanced with no immediate threat of ingredient wastage.");
+    }
+
+    return recommendations;
+  }, [forecastSurplus, aiStockForecast]);
 
   // Render mandatory profile setup on first login
   if (needsSetup) {
@@ -1714,9 +2082,9 @@ export const ManagerPortal: React.FC<ManagerPortalProps> = ({ currentUser, addTo
 
             {/* Right side - AI warnings & Editing */}
             <div className="space-y-6">
-              {/* Gemini AI Alerts */}
+              {/* AI Alerts */}
               <div className="bg-card border border-border/50 rounded-3xl p-6 shadow-sm">
-                <h3 className="text-base font-bold text-foreground mb-4">Gemini AI Alerts</h3>
+                <h3 className="text-base font-bold text-foreground mb-4">AI Alerts</h3>
                 <div className="space-y-3">
                   {aiInventoryAlerts.map((alert, i) => {
                     const isCritical = alert.startsWith("CRITICAL");
@@ -1962,7 +2330,7 @@ export const ManagerPortal: React.FC<ManagerPortalProps> = ({ currentUser, addTo
             <div className="lg:col-span-2 space-y-6">
               {/* Cost Forecast panel */}
               <div className="bg-card border border-border/50 rounded-3xl p-6 sm:p-8 shadow-sm">
-                <h3 className="text-lg font-bold text-foreground mb-1">Gemini AI Spending Forecast</h3>
+                <h3 className="text-lg font-bold text-foreground mb-1">AI Spending Forecast</h3>
                 <p className="text-xs text-muted-foreground mb-6">Financial projections based on current average daily spending.</p>
                 
                 <div className="grid gap-4 sm:grid-cols-2">
@@ -1985,15 +2353,16 @@ export const ManagerPortal: React.FC<ManagerPortalProps> = ({ currentUser, addTo
                 <div className="mt-6 p-4 rounded-2xl bg-primary/5 border border-primary/10">
                   <h4 className="text-xs font-bold text-primary flex items-center gap-1.5 mb-1.5">
                     <AlertCircle size={14} />
-                    Gemini AI Optimization Recommendations
+                    AI Optimization Recommendations
                   </h4>
-                  <p className="text-xs text-muted-foreground leading-relaxed">
-                    Today's spending rate is stable. To optimize the forecast surplus:
-                    <br />
-                    1. Substitute one broiler chicken dish with eggs to save ~3,000 BDT weekly.
-                    <br />
-                    2. Clear out the potato stocks (45 kg) before reordering. Estimated finish date is Friday.
-                  </p>
+                  <div className="text-xs text-muted-foreground leading-relaxed space-y-2">
+                    {aiOptimizationRecommendations.map((rec, idx) => (
+                      <div key={idx} className="flex items-start gap-2">
+                        <span className="text-primary font-bold">•</span>
+                        <span>{rec}</span>
+                      </div>
+                    ))}
+                  </div>
                 </div>
               </div>
 
@@ -2061,147 +2430,137 @@ export const ManagerPortal: React.FC<ManagerPortalProps> = ({ currentUser, addTo
         {/* 6. COMPLAINTS SUB-TAB */}
         {activeSubTab === "complaints" && (
           <div className="grid gap-8 lg:grid-cols-3">
-            {/* Left side - Complaint list */}
-            <div className="lg:col-span-2 bg-card border border-border/50 rounded-3xl p-6 sm:p-8 shadow-sm">
-              <h3 className="text-lg font-bold text-foreground mb-4">Mess Manager Grievances</h3>
-              
-              <div className="space-y-5">
-                {complaints.slice((complaintsPage - 1) * 5, complaintsPage * 5).map(complaint => {
-                  const isEndorsed = complaint.endorsingManagers.includes(managerId);
-                  const isAllEndorsed = complaint.endorsingManagers.length >= 2; // Simulating co-manager checks
-                  
-                  return (
-                    <div key={complaint.id} className="p-5 rounded-2xl bg-muted/20 border border-border/40 space-y-3">
-                      <div className="flex justify-between items-start gap-4">
-                        <div>
-                          <span className="text-[10px] font-bold text-primary uppercase">{complaint.category}</span>
-                          <h4 className="text-sm font-bold text-foreground mt-0.5">Manager Grievance - {complaint.date}</h4>
-                        </div>
-                        <span className={`px-2 py-0.5 rounded-md text-[9px] font-bold uppercase border ${
-                          complaint.severity === "high" 
-                            ? "bg-rose-50 border-rose-200 text-rose-700 dark:bg-rose-950/20 dark:border-rose-800/40" 
-                            : "bg-amber-50 border-amber-200 text-amber-700 dark:bg-amber-950/20"
-                        }`}>
-                          {complaint.severity} Severity
-                        </span>
-                      </div>
+            {/* Left side - Pending Student Complaints */}
+            <div className="lg:col-span-2 bg-card border border-border/50 rounded-3xl p-6 sm:p-8 shadow-sm space-y-6">
+              <div>
+                <h3 className="text-lg font-bold text-foreground">Active Student Complaints</h3>
+                <p className="text-xs text-muted-foreground mt-0.5">Complaints submitted by hall residents awaiting action.</p>
+              </div>
 
-                      <p className="text-xs text-muted-foreground leading-relaxed">{complaint.description}</p>
-                      
-                      <div className="flex flex-wrap items-center justify-between gap-4 pt-3 border-t border-border/40 text-[10px]">
-                        <span className="text-muted-foreground">
-                          Endorsements: <strong>{complaint.endorsingManagers.length}</strong> (Manager IDs: {complaint.endorsingManagers.join(", ")})
-                        </span>
-                        
-                        <div className="flex gap-2">
-                          {!isEndorsed && complaint.status === "draft" && (
-                            <button
-                              onClick={() => handleEndorseComplaint(complaint.id)}
-                              className="bg-card border border-border/80 hover:bg-muted text-foreground px-3 py-1.5 rounded-lg font-bold transition-colors"
-                            >
-                              Endorse Complaint
-                            </button>
-                          )}
-                          {isAllEndorsed && complaint.status === "draft" && (
-                            <button
-                              onClick={() => handleSubmitComplaintToProvost(complaint.id)}
-                              className="bg-primary text-primary-foreground hover:bg-primary/95 px-3 py-1.5 rounded-lg font-bold transition-colors"
-                            >
-                              Submit to Provost
-                            </button>
-                          )}
-                          {complaint.status === "submitted" && (
-                            <span className="flex items-center gap-1 text-emerald-600 font-bold uppercase bg-emerald-50 dark:bg-emerald-950/20 px-2 py-1 rounded-lg border border-emerald-200 dark:border-emerald-900/40">
-                              <CheckCircle size={10} />
-                              Submitted to Provost
-                            </span>
-                          )}
-                        </div>
+              <div className="space-y-5">
+                {complaints.filter(c => c.status === "pending" || !c.status || c.status === "draft").map(complaint => (
+                  <div key={complaint.id} className="p-5 rounded-2xl bg-muted/20 border border-border/40 space-y-3">
+                    <div className="flex justify-between items-start gap-4">
+                      <div>
+                        <span className="text-[10px] font-bold text-primary uppercase">{complaint.category}</span>
+                        <h4 className="text-xs font-semibold text-muted-foreground mt-0.5">Filed on {complaint.date}</h4>
                       </div>
+                      <span className="px-2 py-0.5 rounded-md text-[9px] font-bold uppercase border bg-amber-50 border-amber-200 text-amber-700 dark:bg-amber-950/20">
+                        Pending Action
+                      </span>
                     </div>
-                  );
-                })}
-                {complaints.length === 0 && (
-                  <div className="text-center py-8 text-xs text-muted-foreground select-none">
-                    No active manager complaints logged.
+
+                    <p className="text-xs text-foreground font-medium leading-relaxed bg-black/10 p-3.5 rounded-xl border border-white/5">
+                      "{complaint.description}"
+                    </p>
+
+                    <div className="flex flex-wrap items-center justify-between gap-4 pt-3 border-t border-border/20 text-[10px] text-muted-foreground">
+                      <span>
+                        Student: <strong className="text-foreground">{complaint.studentName || "Anonymous"}</strong> 
+                        {complaint.studentRoom && ` (Room: ${complaint.studentRoom})`}
+                        {complaint.studentBatch && ` (Batch: ${complaint.studentBatch})`}
+                      </span>
+                    </div>
+
+                    {resolvingId === complaint.id ? (
+                      <form 
+                        onSubmit={(e) => {
+                          e.preventDefault();
+                          handleResolveComplaint(complaint.id, actionNote);
+                        }} 
+                        className="p-4 rounded-xl bg-primary/5 border border-primary/10 space-y-3 mt-3 animate-fadeIn"
+                      >
+                        <label className="block text-[9px] font-bold uppercase text-primary">Resolution / Action Taken Note</label>
+                        <textarea
+                          value={actionNote}
+                          onChange={(e) => setActionNote(e.target.value)}
+                          placeholder="e.g. Contacted helper to clean, resolved within 2 hours."
+                          className="w-full px-3 py-2 bg-muted/40 border border-border/60 rounded-xl text-xs focus:outline-none h-16 resize-none text-foreground"
+                          required
+                        />
+                        <div className="flex gap-2 justify-end">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setResolvingId(null);
+                              setActionNote("");
+                            }}
+                            className="px-3 py-1.5 bg-card border border-border/80 hover:bg-muted text-foreground rounded-lg text-[10px] font-bold"
+                          >
+                            Cancel
+                          </button>
+                          <button
+                            type="submit"
+                            className="px-4 py-1.5 bg-primary text-background hover:bg-primary/90 rounded-lg text-[10px] font-bold"
+                          >
+                            Mark Resolved
+                          </button>
+                        </div>
+                      </form>
+                    ) : (
+                      <div className="flex justify-end pt-1">
+                        <button
+                          onClick={() => {
+                            setResolvingId(complaint.id);
+                            setActionNote("");
+                          }}
+                          className="px-4 py-2 bg-primary text-background hover:bg-primary/95 rounded-xl text-xs font-bold transition-colors"
+                        >
+                          Resolve Complaint
+                        </button>
+                      </div>
+                    )}
                   </div>
-                )}
-                {complaints.length > 5 && (
-                  <div className="flex justify-between items-center mt-4 text-xs">
-                    <button
-                      type="button"
-                      disabled={complaintsPage === 1}
-                      onClick={() => setComplaintsPage(prev => Math.max(prev - 1, 1))}
-                      className="px-3 py-1.5 bg-muted border border-border/50 rounded-xl font-bold disabled:opacity-50 hover:bg-muted/80 transition-colors"
-                    >
-                      Previous
-                    </button>
-                    <span className="text-muted-foreground">
-                      Page {complaintsPage} of {Math.ceil(complaints.length / 5)}
-                    </span>
-                    <button
-                      type="button"
-                      disabled={complaintsPage * 5 >= complaints.length}
-                      onClick={() => setComplaintsPage(prev => prev + 1)}
-                      className="px-3 py-1.5 bg-muted border border-border/50 rounded-xl font-bold disabled:opacity-50 hover:bg-muted/80 transition-colors"
-                    >
-                      Next
-                    </button>
+                ))}
+
+                {complaints.filter(c => c.status === "pending" || !c.status || c.status === "draft").length === 0 && (
+                  <div className="text-center py-12 text-xs text-muted-foreground select-none border border-dashed border-border/40 rounded-3xl">
+                    No active student complaints logged.
                   </div>
                 )}
               </div>
             </div>
 
-            {/* Right side - Create complaint */}
-            <div className="bg-card border border-border/50 rounded-3xl p-6 shadow-sm h-fit">
-              <h3 className="text-base font-bold text-foreground mb-4">File a Grievance</h3>
-              <form onSubmit={handleCreateComplaint} className="space-y-4">
-                <div>
-                  <label className="block text-[9px] font-bold uppercase text-muted-foreground mb-1">Issue Category</label>
-                  <select
-                    value={complaintForm.category}
-                    onChange={(e) => setComplaintForm(prev => ({ ...prev, category: e.target.value }))}
-                    className="w-full px-3 py-2 bg-muted/40 border border-border/60 rounded-xl text-xs focus:outline-none"
-                  >
-                    <option value="Water Supply">Water Supply</option>
-                    <option value="Electricity / Load Shedding">Electricity</option>
-                    <option value="Kitchen Sanitation">Kitchen Sanitation</option>
-                    <option value="Gas / Fuel Exhaustion">Gas & Fuel</option>
-                    <option value="Staffing / Attendance">Staffing & Cook Attendance</option>
-                  </select>
-                </div>
+            {/* Right side - Resolved Complaints List */}
+            <div className="bg-card border border-border/50 rounded-3xl p-6 shadow-sm space-y-6 h-fit">
+              <div>
+                <h3 className="text-base font-bold text-foreground">Resolved Complaints</h3>
+                <p className="text-[10px] text-muted-foreground mt-0.5">History of resolved issues and action logs.</p>
+              </div>
 
-                <div>
-                  <label className="block text-[9px] font-bold uppercase text-muted-foreground mb-1">Severity Level</label>
-                  <select
-                    value={complaintForm.severity}
-                    onChange={(e) => setComplaintForm(prev => ({ ...prev, severity: e.target.value as "low" | "medium" | "high" }))}
-                    className="w-full px-3 py-2 bg-muted/40 border border-border/60 rounded-xl text-xs focus:outline-none"
-                  >
-                    <option value="low">Low Severity</option>
-                    <option value="medium">Medium Severity</option>
-                    <option value="high">High Severity</option>
-                  </select>
-                </div>
+              <div className="space-y-4 max-h-[500px] overflow-y-auto pr-1">
+                {complaints.filter(c => c.status === "resolved").map(complaint => (
+                  <div key={complaint.id} className="p-4 rounded-xl bg-white/[0.01] border border-white/5 space-y-2 text-xs">
+                    <div className="flex justify-between items-center">
+                      <span className="text-[9px] font-bold text-emerald-500 uppercase">{complaint.category}</span>
+                      <span className="flex items-center gap-0.5 text-[9px] text-emerald-600 font-bold uppercase bg-emerald-50 dark:bg-emerald-950/20 px-2 py-0.5 rounded border border-emerald-200 dark:border-emerald-900/40">
+                        <CheckCircle size={8} />
+                        Resolved
+                      </span>
+                    </div>
 
-                <div>
-                  <label className="block text-[9px] font-bold uppercase text-muted-foreground mb-1">Description</label>
-                  <textarea
-                    value={complaintForm.description}
-                    onChange={(e) => setComplaintForm(prev => ({ ...prev, description: e.target.value }))}
-                    placeholder="Enter detailed description of dining mess issue..."
-                    className="w-full px-3 py-2 bg-muted/40 border border-border/60 rounded-xl text-xs focus:outline-none h-24 resize-none"
-                    required
-                  />
-                </div>
+                    <p className="text-muted-foreground leading-relaxed italic">
+                      "{complaint.description}"
+                    </p>
 
-                <button
-                  type="submit"
-                  className="w-full py-2 bg-primary text-primary-foreground hover:bg-primary/95 rounded-xl text-xs font-bold transition-colors"
-                >
-                  Draft Complaint Card
-                </button>
-              </form>
+                    <div className="text-[9px] text-foreground/40 pt-1">
+                      Student: {complaint.studentName || "Anonymous"} 
+                      {complaint.studentRoom && ` (Room: ${complaint.studentRoom})`}
+                    </div>
+
+                    <div className="p-2.5 rounded-lg bg-emerald-500/5 border border-emerald-500/10 text-[11px] text-foreground/80 mt-1">
+                      <strong className="text-emerald-500 block text-[9px] uppercase font-bold tracking-wide">Action Taken:</strong>
+                      <span className="block mt-0.5">{complaint.actionTaken}</span>
+                    </div>
+                  </div>
+                ))}
+
+                {complaints.filter(c => c.status === "resolved").length === 0 && (
+                  <div className="text-center py-8 text-xs text-muted-foreground select-none italic">
+                    No resolved complaints history.
+                  </div>
+                )}
+              </div>
             </div>
           </div>
         )}
@@ -2290,24 +2649,51 @@ export const ManagerPortal: React.FC<ManagerPortalProps> = ({ currentUser, addTo
                           <label className="block text-[10px] font-bold uppercase text-muted-foreground mb-1">Photo Upload</label>
                           <div className="flex gap-2 items-center">
                             {mgr.photoUrl ? (
-                              <img src={mgr.photoUrl} alt="Preview" className="w-10 h-10 rounded-xl object-cover border border-white/10 shrink-0" />
+                              <div className="relative w-10 h-10 shrink-0">
+                                <img src={mgr.photoUrl} alt="Preview" className="w-10 h-10 rounded-xl object-cover border border-white/10 bg-white/5" />
+                                {uploadingIdx === idx && (
+                                  <div className="absolute inset-0 bg-background/70 rounded-xl flex items-center justify-center text-[8px] font-bold text-foreground animate-pulse">Up...</div>
+                                )}
+                              </div>
                             ) : (
-                              <div className="w-10 h-10 rounded-xl bg-white/5 border border-white/10 flex items-center justify-center text-foreground/20 text-[9px] shrink-0 font-bold">No Image</div>
+                              <div className="w-10 h-10 rounded-xl bg-white/5 border border-white/10 flex items-center justify-center text-foreground/20 text-[9px] shrink-0 font-bold">
+                                {uploadingIdx === idx ? "Up..." : "No Image"}
+                              </div>
                             )}
                             <input
                               type="file"
                               accept="image/*"
-                              onChange={(e) => {
+                              disabled={uploadingIdx === idx}
+                              onChange={async (e) => {
                                 const file = e.target.files?.[0];
-                                if (file) {
-                                  const reader = new FileReader();
-                                  reader.onloadend = () => {
-                                    handleUpdateEditManagerField(idx, "photoUrl", reader.result as string);
-                                  };
-                                  reader.readAsDataURL(file);
+                                if (!file) return;
+                                if (!file.type.startsWith("image/")) {
+                                  addToast("Please upload a valid image file.", "error");
+                                  return;
+                                }
+                                setUploadingIdx(idx);
+                                try {
+                                  if (isFirebaseEnabled && storage) {
+                                    const storageRef = ref(storage, `manager_profiles/${mgr.id}/${Date.now()}_${file.name}`);
+                                    const downloadUrl = await uploadFileWithTimeout(storageRef, file);
+                                    handleUpdateEditManagerField(idx, "photoUrl", downloadUrl);
+                                    addToast(`Manager ${idx + 1} photo uploaded!`, "success");
+                                  } else {
+                                    const reader = new FileReader();
+                                    reader.onloadend = () => {
+                                      handleUpdateEditManagerField(idx, "photoUrl", reader.result as string);
+                                      addToast(`Manager ${idx + 1} photo loaded!`, "success");
+                                    };
+                                    reader.readAsDataURL(file);
+                                  }
+                                } catch (err) {
+                                  console.error(err);
+                                  addToast("Failed to upload photo.", "error");
+                                } finally {
+                                  setUploadingIdx(-1);
                                 }
                               }}
-                              className="w-full text-[10px] text-foreground file:mr-2 file:py-1 file:px-2 file:rounded-lg file:border-0 file:text-[10px] file:font-semibold file:bg-primary/20 file:text-primary hover:file:bg-primary/30 file:cursor-pointer"
+                              className="w-full text-[10px] text-foreground file:mr-2 file:py-1 file:px-2 file:rounded-lg file:border-0 file:text-[10px] file:font-semibold file:bg-primary/20 file:text-primary hover:file:bg-primary/30 file:cursor-pointer disabled:opacity-50"
                             />
                           </div>
                         </div>
@@ -2422,6 +2808,119 @@ export const ManagerPortal: React.FC<ManagerPortalProps> = ({ currentUser, addTo
                   </div>
                 </div>
               )}
+            </div>
+
+            {/* Helper Staff Card */}
+            <div className="bg-card border border-border/50 rounded-3xl p-6 sm:p-8 shadow-sm space-y-6">
+              <div>
+                <h3 className="text-lg font-bold text-foreground font-serif">Helper Staff & Support Members</h3>
+                <p className="text-xs text-muted-foreground mt-0.5">Add juniors, batchmates or helpers to support the mess managers. They will be displayed in the directory as supporting staff.</p>
+              </div>
+
+              {/* Helper List */}
+              <div className="grid gap-6 md:grid-cols-3">
+                {helpers.map(helper => (
+                  <div key={helper.id} className="relative bg-white/[0.01] border border-white/5 rounded-2xl p-5 group hover:border-primary/25 transition-all">
+                    <button
+                      type="button"
+                      onClick={() => handleDeleteHelper(helper.id, helper.photoUrl)}
+                      className="absolute top-3 right-3 p-1.5 bg-red-500/10 hover:bg-red-500 hover:text-white text-red-400 rounded-lg opacity-0 group-hover:opacity-100 transition-all duration-200"
+                      title="Remove Helper"
+                    >
+                      <Trash2 size={14} />
+                    </button>
+                    
+                    <div className="flex flex-col items-center text-center">
+                      <img 
+                        src={helper.photoUrl || "https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=200&h=200&fit=crop"} 
+                        alt={helper.name}
+                        className="h-16 w-16 rounded-xl object-cover border border-white/10 mb-3 bg-white/5"
+                      />
+                      <span className="text-[9px] font-bold uppercase px-2 py-0.5 rounded-full bg-primary/15 text-primary mb-2">
+                        Supporting Staff
+                      </span>
+                      <h5 className="font-bold text-foreground text-sm">{helper.name}</h5>
+                      <div className="w-full border-t border-white/5 my-2 pt-2 text-[11px] text-foreground/70 space-y-1 text-left">
+                        <div className="flex justify-between">
+                          <span className="text-muted-foreground font-semibold text-[10px]">Role:</span>
+                          <span className="text-primary font-bold">Helping the managers</span>
+                        </div>
+                        <div className="flex justify-between">
+                          <span className="text-muted-foreground text-[10px]">Room No:</span>
+                          <span className="font-semibold">{helper.room}</span>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+
+                {helpers.length === 0 && (
+                  <div className="col-span-3 text-center py-8 text-xs text-muted-foreground border border-dashed border-white/5 rounded-2xl">
+                    No helper staff added yet. Use the form below to add helper members.
+                  </div>
+                )}
+              </div>
+
+              {/* Add Helper Form */}
+              <form onSubmit={handleSaveHelper} className="p-5 rounded-2xl bg-white/[0.01] border border-white/5 space-y-4">
+                <h4 className="text-xs font-bold text-primary uppercase tracking-wide">
+                  Add New Helper Staff
+                </h4>
+
+                <div className="grid gap-4 sm:grid-cols-3">
+                  <div>
+                    <label className="block text-[10px] font-bold uppercase text-muted-foreground mb-1">Full Name</label>
+                    <input
+                      type="text"
+                      value={helperForm.name}
+                      onChange={(e) => setHelperForm({ ...helperForm, name: e.target.value })}
+                      placeholder="e.g. Adnan Sami"
+                      className="w-full px-3 py-2 bg-muted/20 border border-border/40 rounded-xl text-xs focus:outline-none text-foreground"
+                      required
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-[10px] font-bold uppercase text-muted-foreground mb-1">Room No</label>
+                    <input
+                      type="text"
+                      value={helperForm.room}
+                      onChange={(e) => setHelperForm({ ...helperForm, room: e.target.value })}
+                      placeholder="e.g. 308"
+                      className="w-full px-3 py-2 bg-muted/20 border border-border/40 rounded-xl text-xs focus:outline-none text-foreground"
+                      required
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-[10px] font-bold uppercase text-muted-foreground mb-1">Photo (Image File)</label>
+                    <input
+                      type="file"
+                      accept="image/*"
+                      onChange={(e) => setHelperFile(e.target.files?.[0] || null)}
+                      className="w-full text-[10px] text-foreground file:mr-2 file:py-1 file:px-2 file:rounded-lg file:border-0 file:text-[10px] file:font-semibold file:bg-primary/20 file:text-primary hover:file:bg-primary/30 file:cursor-pointer"
+                      required
+                    />
+                  </div>
+                </div>
+
+                <div className="flex justify-end pt-2">
+                  <button
+                    type="submit"
+                    disabled={addingHelper || uploadingHelperPhoto}
+                    className="flex items-center gap-1.5 px-5 py-2 bg-primary text-background rounded-xl text-xs font-bold hover:scale-102 transition-all disabled:opacity-50"
+                  >
+                    {addingHelper || uploadingHelperPhoto ? (
+                      "Adding Staff..."
+                    ) : (
+                      <>
+                        <Plus size={12} />
+                        Add Helper Staff
+                      </>
+                    )}
+                  </button>
+                </div>
+              </form>
             </div>
           </div>
         )}
@@ -2831,6 +3330,126 @@ export const ManagerPortal: React.FC<ManagerPortalProps> = ({ currentUser, addTo
               </div>
 
             </div>
+
+            {/* Provost Profile Editor */}
+            <div className="bg-card border border-border/50 rounded-3xl p-6 sm:p-8 shadow-sm space-y-6 max-w-2xl">
+              <div>
+                <h3 className="text-lg font-bold text-foreground">Hall Provost Profile</h3>
+                <p className="text-xs text-muted-foreground">Update the name, department, bio, and circular avatar photo of the Hall Provost.</p>
+              </div>
+
+              <form onSubmit={handleSaveProvostProfile} className="space-y-4">
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <div>
+                    <label className="block text-[10px] font-bold uppercase text-muted-foreground mb-1">Full Name</label>
+                    <input
+                      type="text"
+                      value={provostName}
+                      onChange={(e) => setProvostName(e.target.value)}
+                      placeholder="e.g. Prof. Dr. Rafiqul Islam"
+                      className="w-full px-3 py-2 bg-muted/20 border border-border/40 rounded-xl text-xs focus:outline-none text-foreground"
+                      required
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-[10px] font-bold uppercase text-muted-foreground mb-1">Department / Designation</label>
+                    <input
+                      type="text"
+                      value={provostDept}
+                      onChange={(e) => setProvostDept(e.target.value)}
+                      placeholder="e.g. Professor, Civil Engineering department · BUET"
+                      className="w-full px-3 py-2 bg-muted/20 border border-border/40 rounded-xl text-xs focus:outline-none text-foreground"
+                      required
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-[10px] font-bold uppercase text-muted-foreground mb-1">Bio / Profile Description</label>
+                  <textarea
+                    value={provostBio}
+                    onChange={(e) => setProvostBio(e.target.value)}
+                    placeholder="Enter provost profile description..."
+                    className="w-full px-3 py-2 bg-muted/20 border border-border/40 rounded-xl text-xs focus:outline-none h-24 resize-none text-foreground"
+                    required
+                  />
+                </div>
+
+                <div className="flex flex-col sm:flex-row items-center gap-4 p-4 rounded-2xl bg-white/[0.01] border border-white/5">
+                  <div className="w-16 h-16 rounded-full overflow-hidden border-2 border-primary shrink-0">
+                    {provostPhotoUrl ? (
+                      <img src={provostPhotoUrl} alt="Provost Circular Avatar" className="w-full h-full object-cover" />
+                    ) : (
+                      <div className="w-full h-full bg-muted flex items-center justify-center text-[10px] text-muted-foreground font-bold">No Image</div>
+                    )}
+                  </div>
+                  <div className="flex-1">
+                    <label className="block text-[10px] font-bold uppercase text-muted-foreground mb-1">Provost Photo</label>
+                    <input
+                      type="file"
+                      accept="image/*"
+                      onChange={handleProvostPhotoChange}
+                      className="w-full text-xs text-muted-foreground file:mr-4 file:py-1.5 file:px-3 file:rounded-xl file:border-0 file:text-[10px] file:font-bold file:bg-primary file:text-background hover:file:bg-primary/80"
+                      disabled={uploadingProvostPhoto}
+                    />
+                    {uploadingProvostPhoto && <p className="text-[10px] text-primary mt-1">Uploading image, please wait...</p>}
+                  </div>
+                </div>
+
+                <div className="text-right">
+                  <button
+                    type="submit"
+                    className="px-6 py-2 bg-primary text-background rounded-xl text-xs font-bold uppercase tracking-wider"
+                    disabled={savingProvostProfile || uploadingProvostPhoto}
+                  >
+                    {savingProvostProfile ? "Saving..." : "Save Provost Profile"}
+                  </button>
+                </div>
+              </form>
+            </div>
+
+            {/* System Developer Profile Editor */}
+            <div className="bg-card border border-border/50 rounded-3xl p-6 sm:p-8 shadow-sm space-y-6 max-w-2xl mt-8">
+              <div>
+                <h3 className="text-lg font-bold text-foreground">System Developer Settings</h3>
+                <p className="text-xs text-muted-foreground">Manage the System Developer's photo. Other information (MISHAT MILON, EEE, 2106059, Room 207) is hardcoded and remains constant.</p>
+              </div>
+
+              <form onSubmit={handleSaveDeveloperPhoto} className="space-y-4">
+                <div className="flex flex-col sm:flex-row items-center gap-4 p-4 rounded-2xl bg-white/[0.01] border border-white/5">
+                  <div className="w-16 h-16 rounded-full overflow-hidden border-2 border-primary shrink-0 bg-white/5">
+                    {developerPhotoUrl ? (
+                      <img src={developerPhotoUrl} alt="Developer Circular Avatar" className="w-full h-full object-cover" />
+                    ) : (
+                      <div className="w-full h-full bg-muted flex items-center justify-center text-[10px] text-muted-foreground font-bold">No Image</div>
+                    )}
+                  </div>
+                  <div className="flex-1">
+                    <label className="block text-[10px] font-bold uppercase text-muted-foreground mb-1">Developer Photo</label>
+                    <input
+                      type="file"
+                      accept="image/*"
+                      onChange={handleDeveloperPhotoChange}
+                      className="w-full text-xs text-muted-foreground file:mr-4 file:py-1.5 file:px-3 file:rounded-xl file:border-0 file:text-[10px] file:font-bold file:bg-primary file:text-background hover:file:bg-primary/80"
+                      disabled={uploadingDeveloperPhoto}
+                    />
+                    {uploadingDeveloperPhoto && <p className="text-[10px] text-primary mt-1">Uploading image, please wait...</p>}
+                  </div>
+                </div>
+
+                <div className="text-right">
+                  <button
+                    type="submit"
+                    className="px-6 py-2 bg-primary text-background rounded-xl text-xs font-bold uppercase tracking-wider"
+                    disabled={savingDeveloperPhoto || uploadingDeveloperPhoto}
+                  >
+                    {savingDeveloperPhoto ? "Saving..." : "Save Developer Photo"}
+                  </button>
+                </div>
+              </form>
+            </div>
+
           </div>
         )}
       </main>
